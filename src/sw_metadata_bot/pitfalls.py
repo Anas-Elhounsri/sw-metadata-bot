@@ -74,7 +74,7 @@ def format_report(repo_url: str, data: dict) -> str:
 
 
 ISSUE_TEMPLATE = """\
-    Hi maintainers,
+Hi maintainers,
 Your repository is part of our metadata quality improvement initiative. We've automatically analyzed your repository's metadata and discovered some issues that could be fixed.
 
 This automated issue includes:
