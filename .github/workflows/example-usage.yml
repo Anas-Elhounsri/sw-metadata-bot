@@ -1,0 +1,48 @@
+name: Example - Using SW Metadata Bot
+
+on:
+  workflow_dispatch:
+
+jobs:
+  analyze-repositories:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Example 1: Analyze a single repository
+      - name: Analyze single repository
+        uses: codemetasoft/sw-metadata-bot/.github/actions/metacheck-analysis@v1
+        with:
+          input: 'https://github.com/example/repo'
+          pitfalls-output: 'single-repo-pitfalls'
+          analysis-output: 'single-repo-analysis.json'
+
+      # Example 2: Analyze multiple repositories from a JSON file
+      - name: Analyze multiple repositories
+        uses: codemetasoft/sw-metadata-bot/.github/actions/metacheck-analysis@v1
+        id: analysis
+        with:
+          input: 'repos.json'
+          pitfalls-output: 'multi-repo-pitfalls'
+          analysis-output: 'multi-repo-analysis.json'
+
+      # Example 3: Create issues in dry-run mode (default)
+      - name: Generate issues (dry-run)
+        uses: codemetasoft/sw-metadata-bot/.github/actions/create-issues@v1
+        with:
+          pitfalls-output-dir: ${{ steps.analysis.outputs.pitfalls-output-dir }}
+          issues-dir: 'generated-issues'
+          dry-run: 'true'
+          log-level: 'INFO'
+
+      # Upload results for review
+      - name: Upload analysis results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: metadata-analysis
+          path: |
+            multi-repo-analysis.json
+            multi-repo-pitfalls/
+            generated-issues/

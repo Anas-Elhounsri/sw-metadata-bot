@@ -15,38 +15,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          version: "latest"
-
-      - name: Install dependencies
-        run: uv sync
-
-      - name: Create output directories
-        run: |
-          mkdir -p pitfalls_outputs
-          mkdir -p issues_output
-
       - name: Run metacheck analysis
-        run: |
-          uv run sw-metadata-bot metacheck \
-            --input assets/ossr_list_url.json \
-            --pitfalls-output pitfalls_outputs \
-            --analysis-output analysis_results.json
+        uses: ./.github/actions/metacheck-analysis
+        id: analysis
+        with:
+          input: assets/ossr_list_url.json
+          pitfalls-output: pitfalls_outputs
+          analysis-output: analysis_results.json
 
       - name: Run create-issues in dry-run mode
-        run: |
-          uv run sw-metadata-bot create-issues \
-            --pitfalls-output-dir pitfalls_outputs \
-            --issues-dir issues_output \
-            --dry-run \
-            --log-level INFO
+        uses: ./.github/actions/create-issues
+        with:
+          pitfalls-output-dir: ${{ steps.analysis.outputs.pitfalls-output-dir }}
+          issues-dir: issues_output
+          dry-run: 'true'
+          log-level: INFO
 
       - name: Upload analysis results
         if: always()
