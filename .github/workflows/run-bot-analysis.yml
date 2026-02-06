@@ -1,0 +1,90 @@
+name: Run Bot Analysis and Issues Generation on ESCAPE-OSSR
+
+on:
+  schedule:
+    # Run every Monday at 00:00 UTC
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+
+jobs:
+  analyze-and-create-issues:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Create output directories
+        run: |
+          mkdir -p pitfalls_outputs
+          mkdir -p issues_output
+
+      - name: Run metacheck analysis
+        run: |
+          uv run sw-metadata-bot metacheck \
+            --input assets/ossr_list_url.json \
+            --pitfalls-output pitfalls_outputs \
+            --analysis-output analysis_results.json
+
+      - name: Run create-issues in dry-run mode
+        run: |
+          uv run sw-metadata-bot create-issues \
+            --pitfalls-output-dir pitfalls_outputs \
+            --issues-dir issues_output \
+            --dry-run \
+            --log-level INFO
+
+      - name: Upload analysis results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis-results
+          path: analysis_results.json
+          retention-days: 30
+
+      - name: Upload pitfalls files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pitfalls-files
+          path: pitfalls_outputs/
+          retention-days: 30
+
+      - name: Upload generated issues
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-issues
+          path: issues_output/
+          retention-days: 30
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## Analysis Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f analysis_results.json ]; then
+            echo "### Analysis Results" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+            head -100 analysis_results.json >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Output Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- Analysis results: \`analysis_results.json\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Pitfalls files: \`pitfalls-files/\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Generated issues: \`generated-issues/\`" >> $GITHUB_STEP_SUMMARY
