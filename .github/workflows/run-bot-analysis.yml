@@ -5,6 +5,12 @@ on:
     # Run every Monday at 00:00 UTC
     - cron: '0 0 * * 1'
   workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/actions/**'
+      - '.github/workflows/run-bot-analysis.yml'
+      - 'src/sw_metadata_bot/**'
+      - 'pyproject.toml'
 
 jobs:
   analyze-and-create-issues:
