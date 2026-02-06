@@ -58,9 +58,19 @@ runs:
     - name: Run metacheck analysis
       shell: bash
       run: |
+        set -euo pipefail
+        if [[ "${{ inputs.skip-somef }}" == "true" ]]; then
+          SKIP_SOMEF="--skip-somef"
+        else
+          SKIP_SOMEF=""
+        fi
+
         uv run sw-metadata-bot metacheck \
           --input "${{ inputs.input }}" \
           --pitfalls-output "${{ inputs.pitfalls-output }}" \
           --analysis-output "${{ inputs.analysis-output }}" \
           --threshold "${{ inputs.threshold }}" \
-          ${{ inputs.skip-somef == 'true' && '--skip-somef' || '' }}
+          ${SKIP_SOMEF}
+
+        echo "Pitfalls output dir: ${{ inputs.pitfalls-output }}"
+        ls -la "${{ inputs.pitfalls-output }}" || true
