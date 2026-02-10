@@ -58,7 +58,7 @@ runs:
     - name: Download NLTK data for SoMEF
       shell: bash
       run: |
-        python -c "
+        uv run python -c "
         import nltk
         nltk.download('stopwords', download_dir='/usr/local/lib/nltk_data')
         nltk.download('averaged_perceptron_tagger', download_dir='/usr/local/lib/nltk_data')
