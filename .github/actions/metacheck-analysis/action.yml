@@ -55,18 +55,24 @@ runs:
       shell: bash
       run: mkdir -p "${{ inputs.pitfalls-output }}"
 
+    - name: Create NLTK data directory
+      shell: bash
+      run: mkdir -p "${{ github.workspace }}/.nltk_data"
+
     - name: Download NLTK data for SoMEF
       shell: bash
       run: |
         uv run python -c "
         import nltk
-        nltk.download('stopwords', download_dir='/usr/local/lib/nltk_data')
-        nltk.download('averaged_perceptron_tagger', download_dir='/usr/local/lib/nltk_data')
-        nltk.download('punkt', download_dir='/usr/local/lib/nltk_data')
+        nltk.download('stopwords', download_dir='${{ github.workspace }}/.nltk_data')
+        nltk.download('averaged_perceptron_tagger', download_dir='${{ github.workspace }}/.nltk_data')
+        nltk.download('punkt', download_dir='${{ github.workspace }}/.nltk_data')
         "
 
     - name: Run metacheck analysis
       shell: bash
+      env:
+        NLTK_DATA: "${{ github.workspace }}/.nltk_data"
       run: |
         set -euo pipefail
         if [[ "${{ inputs.skip-somef }}" == "true" ]]; then
