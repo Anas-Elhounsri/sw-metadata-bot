@@ -63,17 +63,17 @@ runs:
       shell: bash
       env:
         NLTK_DATA: "${{ github.workspace }}/.nltk_data"
+        SOMEF_CONFIGURATION_FILE: ".somef_config.json"
       run: |
         uv run python -m nltk.downloader -d "$NLTK_DATA" wordnet
         uv run python -m nltk.downloader -d "$NLTK_DATA" omw-1.4
-
-        export SOMEF_CONFIGURATION_FILE="${{ github.workspace }}/.somef_config.json"
         uv run somef configure -a
 
     - name: Run metacheck analysis
       shell: bash
       env:
         NLTK_DATA: "${{ github.workspace }}/.nltk_data"
+        SOMEF_CONFIGURATION_FILE: ".somef_config.json"
       run: |
         set -euo pipefail
         if [[ "${{ inputs.skip-somef }}" == "true" ]]; then
