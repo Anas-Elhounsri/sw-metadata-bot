@@ -64,9 +64,7 @@ runs:
       run: |
         uv run python -c "
         import nltk
-        nltk.download('stopwords', download_dir='${{ github.workspace }}/.nltk_data')
-        nltk.download('averaged_perceptron_tagger', download_dir='${{ github.workspace }}/.nltk_data')
-        nltk.download('punkt', download_dir='${{ github.workspace }}/.nltk_data')
+        nltk.download('wordnet', download_dir='${{ github.workspace }}/.nltk_data')
         "
 
     - name: Run metacheck analysis
