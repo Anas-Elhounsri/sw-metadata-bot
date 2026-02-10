@@ -59,13 +59,16 @@ runs:
       shell: bash
       run: mkdir -p "${{ github.workspace }}/.nltk_data"
 
-    - name: Download NLTK data for SoMEF
+    - name: Configure SoMEF before running analysis
       shell: bash
+      env:
+        NLTK_DATA: "${{ github.workspace }}/.nltk_data"
       run: |
-        uv run python -c "
-        import nltk
-        nltk.download('wordnet', download_dir='${{ github.workspace }}/.nltk_data')
-        "
+        uv run python -m nltk.downloader -d "$NLTK_DATA" wordnet
+        uv run python -m nltk.downloader -d "$NLTK_DATA" omw-1.4
+
+        export SOMEF_CONFIGURATION_FILE="${{ github.workspace }}/.somef_config.json"
+        uv run somef configure -a
 
     - name: Run metacheck analysis
       shell: bash
