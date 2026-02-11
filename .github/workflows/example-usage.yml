@@ -1,48 +1,41 @@
-name: Example - Using SW Metadata Bot
+name: Example - Run SW Metadata Bot on This Repo
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
-  analyze-repositories:
+  analyze-and-create-issues:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Example 1: Analyze a single repository
-      - name: Analyze single repository
-        uses: codemetasoft/sw-metadata-bot/.github/actions/metacheck-analysis@v1
-        with:
-          input: 'https://github.com/example/repo'
-          pitfalls-output: 'single-repo-pitfalls'
-          analysis-output: 'single-repo-analysis.json'
-
-      # Example 2: Analyze multiple repositories from a JSON file
-      - name: Analyze multiple repositories
+      - name: Run metacheck analysis (current repo)
         uses: codemetasoft/sw-metadata-bot/.github/actions/metacheck-analysis@v1
         id: analysis
         with:
-          input: 'repos.json'
-          pitfalls-output: 'multi-repo-pitfalls'
-          analysis-output: 'multi-repo-analysis.json'
+          input: https://github.com/${{ github.repository }}
+          pitfalls-output: pitfalls_outputs
+          analysis-output: analysis_results.json
 
-      # Example 3: Create issues in dry-run mode (default)
-      - name: Generate issues (dry-run)
+      - name: Create issues (dry-run)
         uses: codemetasoft/sw-metadata-bot/.github/actions/create-issues@v1
         with:
           pitfalls-output-dir: ${{ steps.analysis.outputs.pitfalls-output-dir }}
-          issues-dir: 'generated-issues'
+          issues-dir: issues_output
           dry-run: 'true'
-          log-level: 'INFO'
+          log-level: INFO
 
-      # Upload results for review
-      - name: Upload analysis results
+      - name: Upload analysis artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: metadata-analysis
+          name: sw-metadata-bot-results
           path: |
-            multi-repo-analysis.json
-            multi-repo-pitfalls/
-            generated-issues/
+            analysis_results.json
+            pitfalls_outputs/
+            issues_output/
