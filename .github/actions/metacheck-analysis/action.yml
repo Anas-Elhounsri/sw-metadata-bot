@@ -91,3 +91,12 @@ runs:
 
         echo "Pitfalls output dir: ${{ inputs.pitfalls-output }}"
         ls -la "${{ inputs.pitfalls-output }}" || true
+
+    - name: Upload pitfalls artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: pitfalls-outputs
+        path: pitfalls_outputs/
+        retention-days: 1  # Clean up after 1 day
+
+      

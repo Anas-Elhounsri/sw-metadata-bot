@@ -44,6 +44,13 @@ runs:
       shell: bash
       run: uv sync
 
+    # Download the artifacts from Job 1
+    - name: Download pitfalls artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: pitfalls-outputs
+        path: pitfalls_outputs/
+
     - name: Create output directory
       shell: bash
       run: mkdir -p "${{ inputs.issues-dir }}"
