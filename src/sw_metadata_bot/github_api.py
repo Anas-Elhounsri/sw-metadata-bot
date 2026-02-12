@@ -54,6 +54,77 @@ class GitHubAPI:
             print(f"GitHub auth failed: {e}")
             return False
 
+    def verify_auth(self) -> dict:
+        """
+        Verify authentication and return detailed information.
+
+        Returns:
+            Dictionary with authentication details including user, scopes, and permissions.
+        """
+        result = {
+            "platform": "GitHub",
+            "token_set": bool(self.token),
+            "authenticated": False,
+            "has_issues_permission": False,
+            "has_contents_permission": False,
+            "user": None,
+            "scopes": [],
+            "errors": [],
+        }
+
+        if not self.token:
+            result["errors"].append("GitHub token not set")
+            return result
+
+        if self.dry_run:
+            result["authenticated"] = True
+            result["user"] = "dry-run-mode"
+            result["has_issues_permission"] = True
+            result["has_contents_permission"] = True
+            return result
+
+        try:
+            response = requests.get(
+                f"{self.base_url}/user",
+                headers={"Authorization": f"token {self.token}"},
+                timeout=10,
+            )
+
+            if response.status_code == 401:
+                result["errors"].append("Invalid token (401 Unauthorized)")
+                return result
+
+            if response.status_code == 403:
+                result["errors"].append("Token forbidden (403 Forbidden)")
+                return result
+
+            response.raise_for_status()
+
+            result["authenticated"] = True
+            user_data = response.json()
+            result["user"] = user_data.get("login")
+
+            # Check token permissions via X-OAuth-Scopes header
+            scopes = response.headers.get("X-OAuth-Scopes", "").split(", ")
+            scopes = [s.strip() for s in scopes if s.strip()]
+            result["scopes"] = scopes
+
+            # Check for required permissions
+            if "repo" in scopes or "public_repo" in scopes:
+                result["has_issues_permission"] = True
+                result["has_contents_permission"] = True
+            else:
+                # Check individual scopes
+                if "issues" in scopes or "write:issues" in scopes:
+                    result["has_issues_permission"] = True
+                if "read:repo_hook" in scopes or "repo" in scopes:
+                    result["has_contents_permission"] = True
+
+        except Exception as e:
+            result["errors"].append(f"Error verifying GitHub token: {str(e)}")
+
+        return result
+
     def create_issue(self, repo_url: str, title: str, body: str) -> str:
         """
         Create an issue on GitHub.
