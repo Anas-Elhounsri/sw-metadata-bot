@@ -1,0 +1,65 @@
+name: 'SW Metadata Bot - Create Issues'
+description: 'Create GitHub/GitLab issues based on metadata analysis results'
+author: 'Tom François'
+
+inputs:
+  pitfalls-output-dir:
+    description: 'Directory containing pitfalls JSON-LD files from metacheck analysis'
+    required: true
+  issues-dir:
+    description: 'Directory to save issue bodies and reports'
+    required: false
+    default: 'issues_output'
+  dry-run:
+    description: 'Simulate issue creation without actually posting to repositories'
+    required: false
+    default: 'true'
+  log-level:
+    description: 'Logging level (DEBUG, INFO, WARNING, ERROR)'
+    required: false
+    default: 'INFO'
+
+outputs:
+  issues-dir:
+    description: 'Directory containing the generated issue files'
+    value: ${{ inputs.issues-dir }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+
+    - name: Install dependencies
+      shell: bash
+      run: uv sync
+
+    # Download the artifacts from Job 1
+    - name: Download pitfalls artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: pitfalls-outputs
+        path: pitfalls_outputs/
+
+    - name: Create output directory
+      shell: bash
+      run: mkdir -p "${{ inputs.issues-dir }}"
+
+    - name: Create issues
+      shell: bash
+      run: |
+        uv run sw-metadata-bot create-issues \
+          --pitfalls-output-dir "${{ inputs.pitfalls-output-dir }}" \
+          --issues-dir "${{ inputs.issues-dir }}" \
+          --log-level "${{ inputs.log-level }}" \
+          ${{ inputs.dry-run == 'true' && '--dry-run' || '' }}

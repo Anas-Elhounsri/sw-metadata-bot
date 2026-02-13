@@ -60,6 +60,104 @@ class GitLabAPI:
             print(f"GitLab auth failed: {e}")
             return False
 
+    def verify_auth(self, host: str = "gitlab.com") -> dict:
+        """
+        Verify authentication and return detailed information.
+
+        Returns:
+            Dictionary with authentication details including user, scopes, and permissions.
+        """
+        result = {
+            "platform": "GitLab",
+            "host": host,
+            "token_set": bool(self.token),
+            "authenticated": False,
+            "has_issues_permission": False,
+            "has_contents_permission": False,
+            "user": None,
+            "scopes": [],
+            "errors": [],
+        }
+
+        if not self.token:
+            result["errors"].append("GitLab token not set")
+            return result
+
+        if self.dry_run:
+            result["authenticated"] = True
+            result["user"] = "dry-run-mode"
+            result["has_issues_permission"] = True
+            result["has_contents_permission"] = True
+            return result
+
+        try:
+            base_url = self.get_base_url(host)
+
+            # Test basic authentication
+            response = requests.get(
+                f"{base_url}/user",
+                headers={"PRIVATE-TOKEN": self.token},
+                timeout=10,
+            )
+
+            if response.status_code == 401:
+                result["errors"].append("Invalid token (401 Unauthorized)")
+                return result
+
+            if response.status_code == 403:
+                result["errors"].append("Token forbidden (403 Forbidden)")
+                return result
+
+            response.raise_for_status()
+
+            result["authenticated"] = True
+            user_data = response.json()
+            result["user"] = user_data.get("username")
+
+            # GitLab doesn't expose token scopes via API like GitHub does
+            # Instead, we test specific permissions by making test API calls
+
+            # Test read_repository permission (can list user projects)
+            try:
+                test_response = requests.get(
+                    f"{base_url}/projects",
+                    headers={"PRIVATE-TOKEN": self.token},
+                    params={"membership": "true", "per_page": 1},
+                    timeout=10,
+                )
+                if test_response.status_code == 200:
+                    result["has_contents_permission"] = True
+            except Exception:
+                pass
+
+            # Test api/write permission (can we access issues endpoint)
+            # Note: We can't actually test write without creating an issue
+            # But read access to issues endpoint suggests api scope
+            try:
+                test_response = requests.get(
+                    f"{base_url}/issues",
+                    headers={"PRIVATE-TOKEN": self.token},
+                    params={"scope": "assigned_to_me", "per_page": 1},
+                    timeout=10,
+                )
+                if test_response.status_code == 200:
+                    result["has_issues_permission"] = True
+            except Exception:
+                pass
+
+            # Add note about GitLab scope detection
+            if not result["scopes"]:
+                result["scopes"] = ["(GitLab doesn't expose token scopes via API)"]
+                if result["has_contents_permission"]:
+                    result["scopes"].append("✓ can read repositories")
+                if result["has_issues_permission"]:
+                    result["scopes"].append("✓ can access issues")
+
+        except Exception as e:
+            result["errors"].append(f"Error verifying GitLab token: {str(e)}")
+
+        return result
+
     def create_issue(self, repo_url: str, title: str, body: str) -> str:
         """
         Create an issue on GitLab.

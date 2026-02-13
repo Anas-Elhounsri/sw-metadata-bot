@@ -1,0 +1,41 @@
+name: Example - Run SW Metadata Bot on This Repo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  analyze-and-create-issues:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run metacheck analysis (current repo)
+        uses: SoftwareUnderstanding/sw-metadata-bot/.github/actions/metacheck-analysis@v1
+        id: analysis
+        with:
+          input: https://github.com/${{ github.repository }}
+          pitfalls-output: pitfalls_outputs
+          analysis-output: analysis_results.json
+
+      - name: Create issues (dry-run)
+        uses: SoftwareUnderstanding/sw-metadata-bot/.github/actions/create-issues@v1
+        with:
+          pitfalls-output-dir: ${{ steps.analysis.outputs.pitfalls-output-dir }}
+          issues-dir: issues_output
+          dry-run: 'true'
+          log-level: INFO
+
+      - name: Upload analysis artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sw-metadata-bot-results
+          path: |
+            analysis_results.json
+            pitfalls_outputs/
+            issues_output/

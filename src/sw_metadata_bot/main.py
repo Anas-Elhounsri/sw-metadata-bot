@@ -4,6 +4,7 @@ import click
 
 from .create_issues import create_issues_command
 from .metacheck_wrapper import metacheck_command
+from .verify_tokens import verify_tokens_command
 
 
 @click.group()
@@ -14,6 +15,7 @@ def cli():
 
 cli.add_command(metacheck_command, name="metacheck")
 cli.add_command(create_issues_command, name="create-issues")
+cli.add_command(verify_tokens_command, name="verify-tokens")
 
 
 def main():

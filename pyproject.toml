@@ -3,13 +3,14 @@ name = "sw-metadata-bot"
 version = "0.1.3"
 description = "RSMetaCheck bot for pushing issues with existing repository metadata"
 readme = "README.md"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.10,<3.13"
 authors = [
     {name = "Tom François", email = "tom.francois@lapp.in2p3.fr"}
 ]
 dependencies = [
     "click>=8.3.1",
     "metacheck>=0.2.0",
+    "python-dotenv>=1.0.0",
     "requests>=2.32.5",
 ]
 

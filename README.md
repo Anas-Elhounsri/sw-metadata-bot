@@ -82,8 +82,11 @@ See [QUICKSTART.md](QUICKSTART.md) for setup and usage instructions.
 Supported platforms:
 
 - ✅ GitHub.com
-- ✅ GitLab.com
-- ✅ Self-hosted GitLab instances
+
+Future:
+
+- GitLab.com
+- Self-hosted GitLab instances
 
 ---
 

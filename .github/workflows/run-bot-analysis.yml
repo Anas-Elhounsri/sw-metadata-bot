@@ -1,0 +1,79 @@
+name: Run Bot Analysis and Issues Generation on ESCAPE-OSSR
+
+on:
+  schedule:
+    # Run every Monday at 00:00 UTC
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/actions/**'
+      - '.github/workflows/run-bot-analysis.yml'
+      - 'src/sw_metadata_bot/**'
+      - 'pyproject.toml'
+
+jobs:
+  analyze-and-create-issues:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run metacheck analysis
+        uses: ./.github/actions/metacheck-analysis
+        id: analysis
+        with:
+          input: assets/ossr_list_url.json
+          pitfalls-output: pitfalls_outputs
+          analysis-output: analysis_results.json
+
+      - name: Run create-issues in dry-run mode
+        uses: ./.github/actions/create-issues
+        with:
+          pitfalls-output-dir: ${{ steps.analysis.outputs.pitfalls-output-dir }}
+          issues-dir: issues_output
+          dry-run: 'true'
+          log-level: INFO
+
+      - name: Upload analysis results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis-results
+          path: analysis_results.json
+          retention-days: 30
+
+      - name: Upload pitfalls files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pitfalls-files
+          path: pitfalls_outputs/
+          retention-days: 30
+
+      - name: Upload generated issues
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-issues
+          path: issues_output/
+          retention-days: 30
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## Analysis Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f analysis_results.json ]; then
+            echo "### Analysis Results" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+            head -100 analysis_results.json >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Output Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- Analysis results: \`analysis_results.json\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Pitfalls files: \`pitfalls-files/\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Generated issues: \`generated-issues/\`" >> $GITHUB_STEP_SUMMARY
