@@ -29,6 +29,14 @@ def _normalize_repo_url(url: str) -> str:
     return url.strip().rstrip("/")
 
 
+def load_config(config_path: Path | None) -> dict:
+    """Load issue configuration from JSON file."""
+    if config_path is None:
+        return {"custom_message": None}
+    with open(config_path, encoding="utf-8") as f:
+        return json.load(f)
+
+
 def _load_repository_list(file_path: Path) -> set[str]:
     """Load repository URLs from a JSON file with a 'repositories' key."""
     with open(file_path, encoding="utf-8") as f:
@@ -73,12 +81,19 @@ def _load_repository_list(file_path: Path) -> set[str]:
     default=None,
     help="JSON file containing repositories to exclude from issue creation.",
 )
+@click.option(
+    "--issue-config-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="JSON file containing issue configuration.",
+)
 def create_issues_command(
     pitfalls_output_dir: Path,
     issues_dir: Path,
     dry_run: bool,
     log_level: str,
     opt_outs_file: Path | None,
+    issue_config_file: Path | None,
 ):
     """
     Create issues in repositories based on metadata analysis results.
@@ -103,6 +118,8 @@ def create_issues_command(
     click.echo(f"\n{'=' * 60}")
     click.echo(f"Creating issues [{mode}]")
     click.echo(f"{'=' * 60}\n")
+
+    issue_config = load_config(issue_config_file)
 
     opt_out_repos: set[str] = set()
     if opt_outs_file is not None:
@@ -141,7 +158,9 @@ def create_issues_command(
 
             # Generate issue content
             report = pitfalls.format_report(repo_url, data)
-            body = pitfalls.create_issue_body(report)
+            body = pitfalls.create_issue_body(
+                report, issue_config.get("custom_message")
+            )
 
             # Save issue body
             body_file = issues_dir / f"issue_body_{file_path.stem}.md"

@@ -29,5 +29,6 @@
     "https://gitlab.in2p3.fr/escape2020/wp3/template_project_escape",
     "https://gitlab.in2p3.fr/escape2020/wp3/zenodoci",
     "https://gitlab.in2p3.fr/gammalearn/gammalearn"
-  ]
+  ],
+  "custom_message": "Your repository was analyzed as part of the ESCAPE OSSR metadata quality initiative. Several metadata issues were identified and could be addressed."
 }

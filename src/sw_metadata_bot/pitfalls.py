@@ -73,9 +73,13 @@ def format_report(repo_url: str, data: dict) -> str:
     return report
 
 
-ISSUE_TEMPLATE = """\
-Hi maintainers,
+DEFAULT_GREETINGS = """\
+    Hi maintainers,
 Your repository is part of our metadata quality improvement initiative. We've automatically analyzed your repository's metadata and discovered some issues that could be fixed.
+"""
+
+ISSUE_TEMPLATE = """\
+{greetings}
 
 This automated issue includes:
 - Detected metadata pitfalls and warnings
@@ -93,8 +97,11 @@ If you're not interested in participating, please comment "unsubscribe" and we w
 """
 
 
-def create_issue_body(report: str) -> str:
-    """Wrap report in issue template."""
-    body = ISSUE_TEMPLATE.format(report=report)
+def create_issue_body(report: str, custom_message: str | None) -> str:
+    """Wrap report in issue template using optional custom message or default greetings."""
+    if not custom_message:
+        custom_message = DEFAULT_GREETINGS
+
+    body = ISSUE_TEMPLATE.format(report=report, greetings=custom_message)
 
     return body
