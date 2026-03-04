@@ -116,7 +116,7 @@ If you're not interested in participating, please comment "unsubscribe" and we w
 """
 
 
-def create_issue_body(report: str, custom_message: str | None) -> str:
+def create_issue_body(report: str, custom_message: str | None = None) -> str:
     """Wrap report in issue template using optional custom message or default greetings."""
     if not custom_message:
         custom_message = DEFAULT_GREETINGS
