@@ -50,7 +50,7 @@ def format_report(repo_url: str, data: dict) -> str:
     report = "# Metadata Quality Report\n\n"
     report += f"**Repository:** {repo_url}\n"
     report += f"**Analysis Date:** {datetime.now().strftime('%Y-%m-%d')}\n"
-    report += f"* sw-metadata-bot version: {__version__}\n"
+    report += f"**sw-metadata-bot version:** {__version__}\n"
     report += f"**RSMetacheck version:** {get_metacheck_version(data)}\n\n"
 
     if pitfalls:
@@ -84,12 +84,12 @@ This automated issue includes:
 ## Context
 This analysis is performed by the [CodeMetaSoft](https://w3id.org/codemetasoft) project to help improve research software quality.
 
-If you're not interested in participating, you can comment "unsubscribe" and we'll remove your repository from our list.
-
 {report}
 ---
 
 This report was generated automatically by [sw-metadata-bot](https://github.com/SoftwareUnderstanding/sw-metadata-bot).
+
+If you're not interested in participating, please comment "unsubscribe" and we will remove your repository from our list.
 """
 
 
