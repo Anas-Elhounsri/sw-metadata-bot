@@ -1,6 +1,7 @@
 """Pitfalls data loading and parsing."""
 
 import json
+import re
 from datetime import datetime
 from importlib.metadata import version
 from pathlib import Path
@@ -19,12 +20,26 @@ def get_repository_url(data: dict) -> str:
     return data.get("assessedSoftware", {}).get("url", "")
 
 
+def _get_check_code(check: dict) -> str:
+    """Extract check code (e.g. P001/W004) from a check entry."""
+    check_id = str(check.get("checkId", ""))
+    if re.match(r"^[PW]\d+", check_id):
+        return check_id
+
+    evidence = str(check.get("evidence", ""))
+    match = re.search(r"\b([PW]\d{3,})\b", evidence)
+    if match:
+        return match.group(1)
+
+    return ""
+
+
 def get_pitfalls_list(data: dict) -> list[dict]:
     """Get list of pitfall checks from data."""
     return [
         check
         for check in data.get("checks", [])
-        if check.get("checkId", "").startswith("P")
+        if _get_check_code(check).startswith("P")
     ]
 
 
@@ -33,7 +48,7 @@ def get_warnings_list(data: dict) -> list[dict]:
     return [
         check
         for check in data.get("checks", [])
-        if check.get("checkId", "").startswith("W")
+        if _get_check_code(check).startswith("W")
     ]
 
 

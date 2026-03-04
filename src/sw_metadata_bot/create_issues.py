@@ -144,10 +144,17 @@ def create_issues_command(
     for i, file_path in enumerate(pitfalls_files, 1):
         click.echo(f"[{i}/{len(pitfalls_files)}] Processing: {file_path.name}")
 
+        repo_url: str | None = None
+        platform: str | None = None
+        pitfalls_count: int | None = None
+        warnings_count: int | None = None
+
         try:
             # Load pitfalls
             data = pitfalls.load_pitfalls(file_path)
             repo_url = pitfalls.get_repository_url(data)
+            pitfalls_count = len(pitfalls.get_pitfalls_list(data))
+            warnings_count = len(pitfalls.get_warnings_list(data))
             click.echo(f"  Repository: {repo_url}")
 
             if _normalize_repo_url(repo_url) in opt_out_repos:
@@ -187,14 +194,23 @@ def create_issues_command(
                     "repo_url": repo_url,
                     "issue_url": issue_url,
                     "platform": platform,
-                    "pitfalls_count": len(pitfalls.get_pitfalls_list(data)),
-                    "warnings_count": len(pitfalls.get_warnings_list(data)),
+                    "pitfalls_count": pitfalls_count,
+                    "warnings_count": warnings_count,
                 }
             )
 
         except Exception as e:
             click.echo(f"  ✗ Error: {e}", err=True)
-            failed.append({"file": str(file_path), "error": str(e)})
+            failed_entry: dict[str, str | int | None] = {
+                "file": str(file_path),
+                "error": str(e),
+                "repo_url": repo_url,
+                "pitfalls_count": pitfalls_count,
+                "warnings_count": warnings_count,
+            }
+            if platform is not None:
+                failed_entry["platform"] = platform
+            failed.append(failed_entry)
 
         click.echo()
 
