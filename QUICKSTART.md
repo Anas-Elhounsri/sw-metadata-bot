@@ -31,12 +31,14 @@ This will create the virtual environnment, download the dependencies and build t
 ### Use this package as dependency
 
 With `uv` (recommended):
+
 ```bash
 uv add git+https://github.com/SoftwareUnderstanding/sw-metadata-bot
 ```
 
 Or with pip
 With `pip`:
+
 ```bash
 pip install git+https://github.com/codemetasoft/sw-metadata-bot.git
 ```
@@ -102,6 +104,26 @@ Key options:
 - `--issues-dir`          : Where to store generated issue bodies and reports
 - `--dry-run`             : Generate content without posting
 
+## Run complete pipeline
+
+To run the bot on the opt-ins list of repos. Please use dry-run flag to avoid spamming these repositories.
+
+```bash
+uv run sw-metadata-bot run-pipeline \
+  --dry-run
+```
+
+To run the bot on a custom list of repositories you can add your own list as input
+
+```bash
+uv run sw-metadata-bot run-pipeline \
+  --input-file <path_to_your_list.json> \
+  --output-root <output_dir> \
+  --run-name <subdir_name> \
+  --snapshot-tag <example_suffix> \
+  --dry-run
+```
+
 ## Minimal examples (Python)
 
 Detect platform and create issue (dry-run):
@@ -128,6 +150,32 @@ issue_url = github.create_issue(repo_url, "Metadata Quality Report", body)
 print(f"Issue URL: {issue_url}")
 ```
 
+## Full pipeline runner (list-based campaigns)
+
+Run the full pipeline with the default opt-ins list:
+
+```bash
+uv run python -m sw_metadata_bot.scripts.run_bot --dry-run
+```
+
+Run the same pipeline on another repository list with dedicated outputs:
+
+```bash
+uv run python -m sw_metadata_bot.scripts.run_bot \
+  --input-file data/state-capture-list.json \
+  --run-name state-capture \
+  --snapshot-tag 2026-03 \
+  --dry-run
+```
+
+This stores outputs in:
+
+- `outputs/state-capture/2026-03/pitfalls_outputs`
+- `outputs/state-capture/2026-03/analysis_results.json`
+- `outputs/state-capture/2026-03/issues_out`
+
+Six months later, run with another snapshot tag (for example `2026-09`) and compare both folders.
+
 ## Troubleshooting
 
 - **Auth failed / 401**: Check `GITHUB_API_TOKEN` / `GITLAB_API_TOKEN` are exported and valid.
@@ -139,4 +187,4 @@ print(f"Issue URL: {issue_url}")
 ## Supported platforms
 
 - GitHub.com
-- Gitlab.com (not tested yet)
+- Gitlab.com
