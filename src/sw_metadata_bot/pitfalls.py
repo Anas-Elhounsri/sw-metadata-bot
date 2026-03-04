@@ -103,6 +103,10 @@ This automated issue includes:
 ## Context
 This analysis is performed by the [CodeMetaSoft](https://w3id.org/codemetasoft) project to help improve research software quality.
 
+This is a first initiative aimed at identifying and reporting metadata quality issues across research software repositories. 
+At this stage, we only provide diagnostics and recommendations. 
+In future iterations, we plan to propose automated fixes for the detected issues to further simplify the improvement process and reduce manual effort.
+
 {report}
 ---
 
