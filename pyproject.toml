@@ -1,6 +1,6 @@
 [project]
 name = "sw-metadata-bot"
-version = "0.1.3"
+version = "0.1.4"
 description = "RSMetaCheck bot for pushing issues with existing repository metadata"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
@@ -50,8 +50,7 @@ docs = [
 ]
 
 [tool.uv.sources]
-metacheck = { git = "https://github.com/SoftwareUnderstanding/RsMetaCheck", rev ="9a32828df95b8cd6dd53052e27974802c23a5de1"}
-
+metacheck = { git = "https://github.com/SoftwareUnderstanding/RsMetaCheck"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
