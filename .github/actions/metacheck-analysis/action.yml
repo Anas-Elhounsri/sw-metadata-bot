@@ -55,9 +55,19 @@ runs:
       shell: bash
       run: mkdir -p "${{ inputs.pitfalls-output }}"
 
+    - name: Create NLTK data directory
+      shell: bash
+      run: mkdir -p "${{ github.workspace }}/.nltk_data"
+
     - name: Configure SoMEF before running analysis
       shell: bash
-      run: uv run somef configure -a
+      env:
+        NLTK_DATA: "${{ github.workspace }}/.nltk_data"
+        SOMEF_CONFIGURATION_FILE: ".somef_config.json"
+      run: |
+        uv run python -m nltk.downloader -d "$NLTK_DATA" wordnet
+        uv run python -m nltk.downloader -d "$NLTK_DATA" omw-1.4
+        uv run somef configure -a
 
     - name: Run metacheck analysis
       shell: bash
