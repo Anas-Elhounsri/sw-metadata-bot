@@ -71,6 +71,7 @@ def test_create_issues_cli_failed_report_contains_analysis_fields(tmp_path):
     issues_dir = tmp_path / "issues"
 
     pitfalls_payload = {
+        "dateCreated": "2026-03-05T15:57:03Z",
         "assessedSoftware": {"url": "https://gitlab.example.org/example/repo"},
         "checks": [
             {
@@ -111,7 +112,70 @@ def test_create_issues_cli_failed_report_contains_analysis_fields(tmp_path):
     assert failed[0]["pitfalls_count"] == 1
     assert failed[0]["warnings_count"] == 1
     assert failed[0]["platform"] == "gitlab"
+    assert failed[0]["analysis_date"] == "2026-03-05T15:57:03Z"
+    assert failed[0]["sw_metadata_bot_version"]
+    assert failed[0]["rsmetacheck_version"]
+    assert failed[0]["file"].endswith("sample.jsonld")
+    assert failed[0]["pitfalls_ids"] == ["P001"]
+    assert failed[0]["warnings_ids"] == ["W002"]
     assert "Unsupported platform" in failed[0]["error"]
+
+
+def test_create_issues_cli_created_report_contains_analysis_fields(tmp_path):
+    """Created report contains metadata and pitfall/warning details."""
+    pitfalls_dir = tmp_path / "pitfalls"
+    pitfalls_dir.mkdir()
+    issues_dir = tmp_path / "issues"
+
+    pitfalls_payload = {
+        "dateCreated": "2026-03-05T15:55:22Z",
+        "assessedSoftware": {"url": "https://github.com/example/repo"},
+        "checks": [
+            {
+                "checkId": "hash1",
+                "pitfall": "https://w3id.org/rsmetacheck/catalog/#P001",
+                "evidence": "P001 detected: missing metadata",
+                "suggestion": "Provide metadata",
+            },
+            {
+                "checkId": "hash2",
+                "pitfall": "https://w3id.org/rsmetacheck/catalog/#W004",
+                "evidence": "W004 detected: no language version",
+            },
+        ],
+    }
+    (pitfalls_dir / "sample.jsonld").write_text(json.dumps(pitfalls_payload))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        create_issues.create_issues_command,
+        [
+            "--pitfalls-output-dir",
+            str(pitfalls_dir),
+            "--issues-dir",
+            str(issues_dir),
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Summary: Created 1 | Skipped 0 | Failed 0" in result.output
+
+    created_report_path = issues_dir / "created_issues_report.json"
+    assert created_report_path.exists()
+
+    created = json.loads(created_report_path.read_text())
+    assert len(created) == 1
+    assert created[0]["repo_url"] == "https://github.com/example/repo"
+    assert created[0]["platform"] == "github"
+    assert created[0]["issue_url"] == "https://github.com/example/repo/issues/0"
+    assert created[0]["pitfalls_count"] == 1
+    assert created[0]["warnings_count"] == 1
+    assert created[0]["analysis_date"] == "2026-03-05T15:55:22Z"
+    assert created[0]["sw_metadata_bot_version"]
+    assert created[0]["rsmetacheck_version"]
+    assert created[0]["pitfalls_ids"] == ["P001"]
+    assert created[0]["warnings_ids"] == ["W004"]
 
 
 def test_create_issues_cli_empty_dir(tmp_path):

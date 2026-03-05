@@ -51,6 +51,76 @@ def _load_repository_list(file_path: Path) -> set[str]:
     return {_normalize_repo_url(url) for url in repositories if isinstance(url, str)}
 
 
+def _extract_check_ids(checks: list[dict]) -> tuple[list[str], list[str]]:
+    """Extract unique pitfall and warning codes from checks."""
+    pitfall_ids: list[str] = []
+    warning_ids: list[str] = []
+
+    for check in checks:
+        pitfall_url = str(check.get("pitfall", ""))
+        code = pitfall_url.split("#")[-1] if "#" in pitfall_url else pitfall_url
+        if not code:
+            continue
+
+        if code.startswith("P") and code not in pitfall_ids:
+            pitfall_ids.append(code)
+        elif code.startswith("W") and code not in warning_ids:
+            warning_ids.append(code)
+
+    return pitfall_ids, warning_ids
+
+
+def _safe_get_metacheck_version(data: dict) -> str:
+    """Get metacheck version without failing issue reporting."""
+    try:
+        return pitfalls.get_metacheck_version(data)
+    except Exception:
+        return "unknown"
+
+
+def _get_analysis_date(data: dict) -> str:
+    """Get analysis date from pitfalls payload."""
+    return str(data.get("dateCreated", "unknown"))
+
+
+def _build_report_entry(
+    *,
+    repo_url: str | None,
+    platform: str | None,
+    pitfalls_count: int | None,
+    warnings_count: int | None,
+    issue_url: str | None,
+    analysis_date: str,
+    bot_version: str,
+    metacheck_version: str,
+    pitfalls_ids: list[str] | None,
+    warnings_ids: list[str] | None,
+    file_path: Path | None = None,
+    error: str | None = None,
+) -> dict[str, object]:
+    """Build a report entry with common metadata and optional fields."""
+    entry: dict[str, object] = {
+        "repo_url": repo_url,
+        "platform": platform,
+        "pitfalls_count": pitfalls_count,
+        "warnings_count": warnings_count,
+        "analysis_date": analysis_date,
+        "sw_metadata_bot_version": bot_version,
+        "rsmetacheck_version": metacheck_version,
+        "pitfalls_ids": pitfalls_ids or [],
+        "warnings_ids": warnings_ids or [],
+    }
+
+    if issue_url is not None:
+        entry["issue_url"] = issue_url
+    if file_path is not None:
+        entry["file"] = str(file_path)
+    if error is not None:
+        entry["error"] = error
+
+    return entry
+
+
 @click.command()
 @click.option(
     "--pitfalls-output-dir",
@@ -139,6 +209,7 @@ def create_issues_command(
     created = []
     failed = []
     skipped = []
+    bot_version = pitfalls.__version__
 
     for i, file_path in enumerate(pitfalls_files, 1):
         click.echo(f"[{i}/{len(pitfalls_files)}] Processing: {file_path.name}")
@@ -147,13 +218,22 @@ def create_issues_command(
         platform: str | None = None
         pitfalls_count: int | None = None
         warnings_count: int | None = None
+        analysis_date: str = "unknown"
+        metacheck_version: str = "unknown"
+        pitfalls_ids: list[str] | None = None
+        warnings_ids: list[str] | None = None
 
         try:
             # Load pitfalls
             data = pitfalls.load_pitfalls(file_path)
             repo_url = pitfalls.get_repository_url(data)
-            pitfalls_count = len(pitfalls.get_pitfalls_list(data))
-            warnings_count = len(pitfalls.get_warnings_list(data))
+            pitfalls_list = pitfalls.get_pitfalls_list(data)
+            warnings_list = pitfalls.get_warnings_list(data)
+            pitfalls_count = len(pitfalls_list)
+            warnings_count = len(warnings_list)
+            analysis_date = _get_analysis_date(data)
+            metacheck_version = _safe_get_metacheck_version(data)
+            pitfalls_ids, warnings_ids = _extract_check_ids(data.get("checks", []))
             click.echo(f"  Repository: {repo_url}")
 
             if _normalize_repo_url(repo_url) in opt_out_repos:
@@ -193,27 +273,38 @@ def create_issues_command(
             click.echo(f"  ✓ Issue created: {issue_url}")
 
             created.append(
-                {
-                    "repo_url": repo_url,
-                    "issue_url": issue_url,
-                    "platform": platform,
-                    "pitfalls_count": pitfalls_count,
-                    "warnings_count": warnings_count,
-                }
+                _build_report_entry(
+                    repo_url=repo_url,
+                    platform=platform,
+                    pitfalls_count=pitfalls_count,
+                    warnings_count=warnings_count,
+                    issue_url=issue_url,
+                    analysis_date=analysis_date,
+                    bot_version=bot_version,
+                    metacheck_version=metacheck_version,
+                    pitfalls_ids=pitfalls_ids,
+                    warnings_ids=warnings_ids,
+                )
             )
 
         except Exception as e:
             click.echo(f"  ✗ Error: {e}", err=True)
-            failed_entry: dict[str, str | int | None] = {
-                "file": str(file_path),
-                "error": str(e),
-                "repo_url": repo_url,
-                "pitfalls_count": pitfalls_count,
-                "warnings_count": warnings_count,
-            }
-            if platform is not None:
-                failed_entry["platform"] = platform
-            failed.append(failed_entry)
+            failed.append(
+                _build_report_entry(
+                    repo_url=repo_url,
+                    platform=platform,
+                    pitfalls_count=pitfalls_count,
+                    warnings_count=warnings_count,
+                    issue_url=None,
+                    analysis_date=analysis_date,
+                    bot_version=bot_version,
+                    metacheck_version=metacheck_version,
+                    pitfalls_ids=pitfalls_ids,
+                    warnings_ids=warnings_ids,
+                    file_path=file_path,
+                    error=str(e),
+                )
+            )
 
         click.echo()
 
