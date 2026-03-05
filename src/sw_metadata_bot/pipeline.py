@@ -67,6 +67,8 @@ def run_pipeline(
         str(issues_output_dir),
         "--opt-outs-file",
         str(opt_outs_file),
+        "--issue-config-file",
+        str(input_file),  # Use default config
     ]
 
     if dry_run:

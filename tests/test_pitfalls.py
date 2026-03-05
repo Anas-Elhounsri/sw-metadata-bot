@@ -83,6 +83,32 @@ def test_get_warnings_list(sample_data):
     assert warnings[1]["checkId"] == "W002"
 
 
+def test_get_lists_from_hashed_check_ids():
+    """Test filtering when checkId is hashed and code is in evidence."""
+    data = {
+        "checks": [
+            {
+                "checkId": "694a7a7c5a16db39412fac70b6d27fbadc7222b1d8ae57ff061cc6c87e6d8edc",
+                "evidence": "P001 detected: codemeta.json version 'unknown' does not match release version '2.2.0'",
+            },
+            {
+                "checkId": "95e131ef79871959cfd0f1ae06dd502d6c160851b0cd5b40844818858c0b22c4",
+                "evidence": "W001 detected: pyproject.toml contains software requirements without versions.",
+            },
+            {
+                "checkId": "7c48a13e4d4ef33a608362bd2142616ca01aa2b528b457e51016034a151d058e",
+                "evidence": "W004 detected: codemeta.json Programming languages without versions: Python",
+            },
+        ]
+    }
+
+    pitfalls = get_pitfalls_list(data)
+    warnings = get_warnings_list(data)
+
+    assert len(pitfalls) == 1
+    assert len(warnings) == 2
+
+
 def test_get_pitfalls_list_empty():
     """Test pitfalls extraction from empty data."""
     pitfalls = get_pitfalls_list({})

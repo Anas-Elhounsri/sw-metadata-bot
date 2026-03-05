@@ -1,6 +1,7 @@
 """Pitfalls data loading and parsing."""
 
 import json
+import re
 from datetime import datetime
 from importlib.metadata import version
 from pathlib import Path
@@ -19,12 +20,26 @@ def get_repository_url(data: dict) -> str:
     return data.get("assessedSoftware", {}).get("url", "")
 
 
+def _get_check_code(check: dict) -> str:
+    """Extract check code (e.g. P001/W004) from a check entry."""
+    check_id = str(check.get("checkId", ""))
+    if re.match(r"^[PW]\d+", check_id):
+        return check_id
+
+    evidence = str(check.get("evidence", ""))
+    match = re.search(r"\b([PW]\d{3,})\b", evidence)
+    if match:
+        return match.group(1)
+
+    return ""
+
+
 def get_pitfalls_list(data: dict) -> list[dict]:
     """Get list of pitfall checks from data."""
     return [
         check
         for check in data.get("checks", [])
-        if check.get("checkId", "").startswith("P")
+        if _get_check_code(check).startswith("P")
     ]
 
 
@@ -33,7 +48,7 @@ def get_warnings_list(data: dict) -> list[dict]:
     return [
         check
         for check in data.get("checks", [])
-        if check.get("checkId", "").startswith("W")
+        if _get_check_code(check).startswith("W")
     ]
 
 
@@ -73,9 +88,13 @@ def format_report(repo_url: str, data: dict) -> str:
     return report
 
 
-ISSUE_TEMPLATE = """\
-Hi maintainers,
+DEFAULT_GREETINGS = """\
+    Hi maintainers,
 Your repository is part of our metadata quality improvement initiative. We've automatically analyzed your repository's metadata and discovered some issues that could be fixed.
+"""
+
+ISSUE_TEMPLATE = """\
+{greetings}
 
 This automated issue includes:
 - Detected metadata pitfalls and warnings
@@ -83,6 +102,10 @@ This automated issue includes:
 
 ## Context
 This analysis is performed by the [CodeMetaSoft](https://w3id.org/codemetasoft) project to help improve research software quality.
+
+This is a first initiative aimed at identifying and reporting metadata quality issues across research software repositories. 
+At this stage, we only provide diagnostics and recommendations. 
+In future iterations, we plan to propose automated fixes for the detected issues to further simplify the improvement process and reduce manual effort.
 
 {report}
 ---
@@ -93,8 +116,11 @@ If you're not interested in participating, please comment "unsubscribe" and we w
 """
 
 
-def create_issue_body(report: str) -> str:
-    """Wrap report in issue template."""
-    body = ISSUE_TEMPLATE.format(report=report)
+def create_issue_body(report: str, custom_message: str | None = None) -> str:
+    """Wrap report in issue template using optional custom message or default greetings."""
+    if not custom_message:
+        custom_message = DEFAULT_GREETINGS
+
+    body = ISSUE_TEMPLATE.format(report=report, greetings=custom_message)
 
     return body
