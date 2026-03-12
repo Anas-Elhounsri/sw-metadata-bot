@@ -2,10 +2,10 @@
 
 import json
 from datetime import datetime
-from importlib.metadata import version
 from pathlib import Path
 
 from . import __version__
+from .check_parsing import get_check_catalog_id, get_short_check_code
 
 
 def load_pitfalls(file_path: Path) -> dict:
@@ -20,9 +20,8 @@ def get_repository_url(data: dict) -> str:
 
 
 def _get_check_code(check: dict) -> str:
-    """Extract check code (e.g. P001/W004) from a check entry."""
-    PITFALL_ID_KEY = "pitfall"
-    return str(check.get(PITFALL_ID_KEY, ""))
+    """Extract full check catalog ID from a check entry."""
+    return get_check_catalog_id(check)
 
 
 def _get_short_check_code(check_full_id: str) -> str:
@@ -35,7 +34,7 @@ def get_pitfalls_list(data: dict) -> list[dict]:
     return [
         check
         for check in data.get("checks", [])
-        if _get_short_check_code(_get_check_code(check)).startswith("P")
+        if get_short_check_code(check).startswith("P")
     ]
 
 
@@ -44,13 +43,23 @@ def get_warnings_list(data: dict) -> list[dict]:
     return [
         check
         for check in data.get("checks", [])
-        if _get_short_check_code(_get_check_code(check)).startswith("W")
+        if get_short_check_code(check).startswith("W")
     ]
 
 
 def get_metacheck_version(data: dict) -> str:
-    """Get the version of RSMetacheck used for analysis."""
-    return version("metacheck")
+    """Get the version of RSMetacheck used for analysis.
+
+    New schema (0.2.1+): Version is in checkingSoftware.softwareVersion
+    Falls back to "unknown" if not found.
+    """
+    # New schema: checkingSoftware.softwareVersion
+    version_from_checking = data.get("checkingSoftware", {}).get("softwareVersion", "")
+    if version_from_checking:
+        return version_from_checking
+
+    # If not found in schema, return unknown
+    return "unknown"
 
 
 def format_report(repo_url: str, data: dict) -> str:
@@ -88,7 +97,7 @@ def format_report(repo_url: str, data: dict) -> str:
 
 
 DEFAULT_GREETINGS = """\
-    Hi maintainers,
+Hi maintainers,
 Your repository is part of our metadata quality improvement initiative. We've automatically analyzed your repository's metadata and discovered some issues that could be fixed.
 """
 
