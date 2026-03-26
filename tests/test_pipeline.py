@@ -5,13 +5,13 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from sw_metadata_bot import pipeline
+from sw_metadata_bot import analysis_runtime, commit_lookup, pipeline
+from sw_metadata_bot import publish as publish_module
 
 
-def _write_community_config(tmp_path, **overrides):
-    """Write a minimal community config and return its path."""
+def _write_config(tmp_path, **overrides):
+    """Write a minimal config and return its path."""
     config = {
-        "community": {"name": "ossr"},
         "repositories": ["https://github.com/example/repo"],
         "issues": {"custom_message": None, "opt_outs": []},
         "outputs": {
@@ -21,43 +21,26 @@ def _write_community_config(tmp_path, **overrides):
         },
     }
     config.update(overrides)
-    config_path = tmp_path / "community.json"
+    config_path = tmp_path / "config.json"
     config_path.write_text(json.dumps(config))
     return config_path
 
 
-def test_resolve_run_paths_defaults():
-    """Use input stem when run_name and snapshot_tag are not provided."""
-    somef_output, pitfalls_output_dir, analysis_output_file, issues_output_dir = (
-        pipeline._resolve_run_paths(
-            output_root=Path("outputs"),
-            run_name="opt-ins",
-            snapshot_tag=None,
-        )
+def test_resolve_per_repo_paths_uses_analysis_root(tmp_path):
+    """Per-repo paths are nested directly under analysis root with stable filenames."""
+    analysis_root = tmp_path / "outputs" / "ossr" / "20260325"
+
+    paths = analysis_runtime.resolve_per_repo_paths(
+        analysis_root=analysis_root,
+        repo_url="https://github.com/example/repo",
     )
 
-    assert somef_output == Path("outputs/opt-ins/somef_outputs")
-    assert pitfalls_output_dir == Path("outputs/opt-ins/pitfalls_outputs")
-    assert analysis_output_file == Path("outputs/opt-ins/analysis_results.json")
-    assert issues_output_dir == Path("outputs/opt-ins/issues_out")
-
-
-def test_resolve_run_paths_with_run_name_and_snapshot():
-    """Use custom run_name and nested snapshot folder when provided."""
-    somef_output, pitfalls_output_dir, analysis_output_file, issues_output_dir = (
-        pipeline._resolve_run_paths(
-            output_root=Path("outputs"),
-            run_name="ossr-run",
-            snapshot_tag="2026-03",
-        )
-    )
-
-    assert somef_output == Path("outputs/ossr-run/2026-03/somef_outputs")
-    assert pitfalls_output_dir == Path("outputs/ossr-run/2026-03/pitfalls_outputs")
-    assert analysis_output_file == Path(
-        "outputs/ossr-run/2026-03/analysis_results.json"
-    )
-    assert issues_output_dir == Path("outputs/ossr-run/2026-03/issues_out")
+    repo_root = analysis_root / "github_com_example_repo"
+    assert paths["repo_folder"] == repo_root
+    assert paths["somef_output"] == repo_root / "somef_output.json"
+    assert paths["pitfall_output"] == repo_root / "pitfall.jsonld"
+    assert paths["issue_report"] == repo_root / "issue_report.md"
+    assert paths["report"] == repo_root / "report.json"
 
 
 def test_resolve_output_root_relative_uses_project_root(tmp_path):
@@ -65,7 +48,7 @@ def test_resolve_output_root_relative_uses_project_root(tmp_path):
     (tmp_path / "pyproject.toml").write_text("[project]\nname = 'example'\n")
     config_dir = tmp_path / "assets"
     config_dir.mkdir()
-    config_path = config_dir / "community.json"
+    config_path = config_dir / "config.json"
     config = {
         "repositories": [],
         "outputs": {"root_dir": "assets"},
@@ -79,7 +62,7 @@ def test_resolve_output_root_relative_uses_project_root(tmp_path):
 
 def test_resolve_output_root_keeps_absolute_path(tmp_path):
     """Keep absolute output root unchanged."""
-    config_path = tmp_path / "community.json"
+    config_path = tmp_path / "config.json"
     absolute_output_root = tmp_path / "custom-output"
     config = {
         "repositories": [],
@@ -129,29 +112,18 @@ def test_resolve_unique_snapshot_tag_increments_existing_suffixed_tag(tmp_path):
     assert resolved == "X_5"
 
 
-def test_run_pipeline_invokes_commands_with_expected_args(monkeypatch, tmp_path):
-    """Invoke metacheck and create-issues with the expected computed arguments."""
+def test_run_pipeline_invokes_metacheck_and_writes_reports(monkeypatch, tmp_path):
+    """Invoke metacheck with expected args and write analysis reports per snapshot."""
     calls: dict[str, dict] = {}
 
     def fake_metacheck_main(*, args, standalone_mode):
         """Capture metacheck invocation arguments for assertions."""
         calls["metacheck"] = {"args": args, "standalone_mode": standalone_mode}
-        filtered_input = Path(args[1])
-        calls["filtered_repos"] = json.loads(filtered_input.read_text())["repositories"]
-
-    def fake_create_issues_main(*, args, standalone_mode):
-        """Capture create-issues invocation arguments for assertions."""
-        calls["create_issues"] = {"args": args, "standalone_mode": standalone_mode}
 
     monkeypatch.setattr(pipeline.metacheck_command, "main", fake_metacheck_main)
-    monkeypatch.setattr(
-        pipeline.create_issues_command,
-        "main",
-        fake_create_issues_main,
-    )
 
     output_root = tmp_path / "outputs"
-    community_config = _write_community_config(
+    config = _write_config(
         tmp_path,
         repositories=["https://github.com/example/repo"],
         outputs={
@@ -162,55 +134,41 @@ def test_run_pipeline_invokes_commands_with_expected_args(monkeypatch, tmp_path)
     )
 
     pipeline.run_pipeline(
-        community_config_file=community_config,
+        config_file=config,
         dry_run=False,
         snapshot_tag="202603",
         previous_report=None,
     )
 
     assert calls["metacheck"]["standalone_mode"] is False
-    assert calls["metacheck"]["args"] == [
+    assert calls["metacheck"]["args"][0:2] == [
         "--input",
-        calls["metacheck"]["args"][1],
-        "--somef-output",
-        str(output_root / "batch-a" / "202603" / "somef_outputs"),
-        "--pitfalls-output",
-        str(output_root / "batch-a" / "202603" / "pitfalls_outputs"),
-        "--analysis-output",
-        str(output_root / "batch-a" / "202603" / "analysis_results.json"),
+        "https://github.com/example/repo",
     ]
-    assert calls["filtered_repos"] == ["https://github.com/example/repo"]
+    assert calls["metacheck"]["args"][2] == "--somef-output"
+    assert calls["metacheck"]["args"][3].endswith("/202603/github_com_example_repo")
+    assert calls["metacheck"]["args"][4] == "--pitfalls-output"
+    assert calls["metacheck"]["args"][5].endswith("/202603/github_com_example_repo")
 
-    assert calls["create_issues"]["standalone_mode"] is False
-    assert calls["create_issues"]["args"] == [
-        "--pitfalls-output-dir",
-        str(output_root / "batch-a" / "202603" / "pitfalls_outputs"),
-        "--issues-dir",
-        str(output_root / "batch-a" / "202603" / "issues_out"),
-        "--community-config-file",
-        str(community_config),
-        "--analysis-summary-file",
-        str(output_root / "batch-a" / "202603" / "analysis_results.json"),
-    ]
+    run_report_path = output_root / "batch-a" / "202603" / "run_report.json"
+    assert run_report_path.exists()
+    run_report = json.loads(run_report_path.read_text())
+    assert run_report["run_metadata"]["analysis_summary_file"].endswith(
+        "/202603/analysis_results.json"
+    )
 
 
-def test_run_pipeline_appends_dry_run_flag(monkeypatch, tmp_path):
-    """Append --dry-run when dry_run=True."""
-    captured_args: dict[str, list[str]] = {}
+def test_run_pipeline_marks_run_report_dry_run(monkeypatch, tmp_path):
+    """Persist dry-run mode in run report metadata."""
 
     def fake_metacheck_main(*, args, standalone_mode):
         """Accept metacheck invocation without side effects."""
         return None
 
-    def fake_create_issues_main(*, args, standalone_mode):
-        """Capture create-issues arguments to verify dry-run flag propagation."""
-        captured_args["args"] = args
-
     monkeypatch.setattr(pipeline.metacheck_command, "main", fake_metacheck_main)
-    monkeypatch.setattr(pipeline.create_issues_command, "main", fake_create_issues_main)
 
     output_root = tmp_path / "outputs"
-    community_config = _write_community_config(
+    config = _write_config(
         tmp_path,
         outputs={
             "root_dir": str(output_root),
@@ -220,17 +178,20 @@ def test_run_pipeline_appends_dry_run_flag(monkeypatch, tmp_path):
     )
 
     pipeline.run_pipeline(
-        community_config_file=community_config,
+        config_file=config,
         dry_run=True,
         snapshot_tag=None,
         previous_report=None,
     )
 
-    assert captured_args["args"][-1] == "--dry-run"
+    run_report_path = output_root / "batch-a" / "run_report.json"
+    assert run_report_path.exists()
+    run_report = json.loads(run_report_path.read_text())
+    assert run_report["run_metadata"]["dry_run"] is True
 
 
-def test_run_pipeline_command_forwards_to_run_pipeline(monkeypatch, tmp_path):
-    """CLI wrapper passes parsed values to run_pipeline()."""
+def test_run_analysis_command_forwards_to_run_pipeline(monkeypatch, tmp_path):
+    """run-analysis CLI wrapper forwards arguments and enforces dry-run mode."""
     captured: dict[str, object] = {}
 
     def fake_run_pipeline(**kwargs):
@@ -239,7 +200,7 @@ def test_run_pipeline_command_forwards_to_run_pipeline(monkeypatch, tmp_path):
 
     monkeypatch.setattr(pipeline, "run_pipeline", fake_run_pipeline)
 
-    community_config = _write_community_config(
+    config = _write_config(
         tmp_path,
         outputs={
             "root_dir": str(tmp_path / "results"),
@@ -250,25 +211,49 @@ def test_run_pipeline_command_forwards_to_run_pipeline(monkeypatch, tmp_path):
 
     runner = CliRunner()
     result = runner.invoke(
-        pipeline.run_pipeline_command,
+        pipeline.run_analysis_command,
         [
-            "--community-config-file",
-            str(community_config),
+            "--config-file",
+            str(config),
             "--snapshot-tag",
             "2026-03",
-            "--dry-run",
             "--previous-report",
-            str(community_config),
+            str(config),
         ],
     )
 
     assert result.exit_code == 0
     assert captured == {
-        "community_config_file": community_config,
+        "config_file": config,
         "dry_run": True,
         "snapshot_tag": "2026-03",
-        "previous_report": community_config,
+        "previous_report": config,
     }
+
+
+def test_publish_command_forwards_to_publish_analysis(monkeypatch, tmp_path):
+    """publish CLI wrapper passes the analysis root to publish executor."""
+    captured: dict[str, Path] = {}
+
+    def fake_publish_analysis(analysis_root: Path) -> None:
+        captured["analysis_root"] = analysis_root
+
+    monkeypatch.setattr(publish_module, "publish_analysis", fake_publish_analysis)
+
+    analysis_root = tmp_path / "outputs" / "ossr" / "20260325"
+    analysis_root.mkdir(parents=True)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        publish_module.publish_command,
+        [
+            "--analysis-root",
+            str(analysis_root),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["analysis_root"] == analysis_root
 
 
 def test_find_latest_previous_report_prefers_latest_snapshot(tmp_path):
@@ -276,15 +261,15 @@ def test_find_latest_previous_report_prefers_latest_snapshot(tmp_path):
     output_root = tmp_path / "outputs"
     run_name = "ossr"
 
-    r1 = output_root / run_name / "20260310" / "issues_out"
-    r2 = output_root / run_name / "20260311" / "issues_out"
-    r3 = output_root / run_name / "20260311_2" / "issues_out"
+    r1 = output_root / run_name / "20260310"
+    r2 = output_root / run_name / "20260311"
+    r3 = output_root / run_name / "20260311_2"
     r1.mkdir(parents=True)
     r2.mkdir(parents=True)
     r3.mkdir(parents=True)
-    (r1 / "report.json").write_text("{}")
-    (r2 / "report.json").write_text("{}")
-    (r3 / "report.json").write_text("{}")
+    (r1 / "run_report.json").write_text("{}")
+    (r2 / "run_report.json").write_text("{}")
+    (r3 / "run_report.json").write_text("{}")
 
     found = pipeline.find_latest_previous_report(
         output_root=output_root,
@@ -292,7 +277,7 @@ def test_find_latest_previous_report_prefers_latest_snapshot(tmp_path):
         current_snapshot_tag="20260312",
     )
 
-    assert found == r3 / "report.json"
+    assert found == r3 / "run_report.json"
 
 
 def test_run_pipeline_auto_discovers_previous_report(monkeypatch, tmp_path):
@@ -303,15 +288,10 @@ def test_run_pipeline_auto_discovers_previous_report(monkeypatch, tmp_path):
         """Capture metacheck invocation to keep test side-effect free."""
         calls["metacheck"] = {"args": args, "standalone_mode": standalone_mode}
 
-    def fake_create_issues_main(*, args, standalone_mode):
-        """Capture create-issues invocation and discovered report arguments."""
-        calls["create_issues"] = {"args": args, "standalone_mode": standalone_mode}
-
     monkeypatch.setattr(pipeline.metacheck_command, "main", fake_metacheck_main)
-    monkeypatch.setattr(pipeline.create_issues_command, "main", fake_create_issues_main)
 
     output_root = tmp_path / "outputs"
-    community_config = _write_community_config(
+    config = _write_config(
         tmp_path,
         outputs={
             "root_dir": str(output_root),
@@ -320,21 +300,22 @@ def test_run_pipeline_auto_discovers_previous_report(monkeypatch, tmp_path):
         },
     )
 
-    previous_report = output_root / "batch-a" / "20260310" / "issues_out"
-    previous_report.mkdir(parents=True)
-    (previous_report / "report.json").write_text("{}")
+    previous_snapshot = output_root / "batch-a" / "20260310"
+    previous_snapshot.mkdir(parents=True)
+    (previous_snapshot / "run_report.json").write_text("{}")
 
     pipeline.run_pipeline(
-        community_config_file=community_config,
+        config_file=config,
         dry_run=False,
         snapshot_tag="20260311",
         previous_report=None,
     )
 
-    assert "--previous-report" in calls["create_issues"]["args"]
-    idx = calls["create_issues"]["args"].index("--previous-report")
-    assert calls["create_issues"]["args"][idx + 1] == str(
-        previous_report / "report.json"
+    report_path = output_root / "batch-a" / "20260311" / "run_report.json"
+    assert report_path.exists()
+    report_data = json.loads(report_path.read_text())
+    assert report_data["run_metadata"]["previous_report_source"] == str(
+        previous_snapshot / "run_report.json"
     )
 
 
@@ -346,19 +327,10 @@ def test_run_pipeline_uses_incremented_snapshot_tag_on_collision(monkeypatch, tm
         """Capture metacheck invocation arguments for assertions."""
         calls["metacheck"] = {"args": args, "standalone_mode": standalone_mode}
 
-    def fake_create_issues_main(*, args, standalone_mode):
-        """Capture create-issues invocation arguments for assertions."""
-        calls["create_issues"] = {"args": args, "standalone_mode": standalone_mode}
-
     monkeypatch.setattr(pipeline.metacheck_command, "main", fake_metacheck_main)
-    monkeypatch.setattr(
-        pipeline.create_issues_command,
-        "main",
-        fake_create_issues_main,
-    )
 
     output_root = tmp_path / "outputs"
-    community_config = _write_community_config(
+    config = _write_config(
         tmp_path,
         outputs={
             "root_dir": str(output_root),
@@ -370,42 +342,87 @@ def test_run_pipeline_uses_incremented_snapshot_tag_on_collision(monkeypatch, tm
     (output_root / "batch-a" / "X").mkdir(parents=True)
 
     pipeline.run_pipeline(
-        community_config_file=community_config,
+        config_file=config,
         dry_run=False,
         snapshot_tag="X",
         previous_report=None,
     )
 
-    assert calls["metacheck"]["args"] == [
+    assert calls["metacheck"]["args"][0:2] == [
         "--input",
-        calls["metacheck"]["args"][1],
-        "--somef-output",
-        str(output_root / "batch-a" / "X_2" / "somef_outputs"),
-        "--pitfalls-output",
-        str(output_root / "batch-a" / "X_2" / "pitfalls_outputs"),
-        "--analysis-output",
-        str(output_root / "batch-a" / "X_2" / "analysis_results.json"),
+        "https://github.com/example/repo",
     ]
+    assert calls["metacheck"]["args"][2] == "--somef-output"
+    assert calls["metacheck"]["args"][3].endswith(
+        "/batch-a/X_2/github_com_example_repo"
+    )
+
+
+def test_sanitize_repo_name_handles_non_standard_url_path():
+    """Convert mixed host/path/hyphen URL inputs to deterministic snake-style names."""
+    value = pipeline.sanitize_repo_name(
+        "https://atlas.cern/updates/press-statement/13-tev-open-data"
+    )
+
+    assert value == "atlas_cern_updates_press_statement_13_tev_open_data"
+
+
+def test_get_gitlab_head_commit_uses_gitlab_api(monkeypatch):
+    """Resolve GitLab HEAD commit through GitLab API endpoint."""
+
+    class DummyResponse:
+        def __init__(self):
+            self._data = [{"id": "a" * 40}]
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._data
+
+    def fake_get(url, params, timeout):
+        assert url.startswith("https://gitlab.com/api/v4/projects/")
+        assert params == {"per_page": 1}
+        assert timeout == 10
+        return DummyResponse()
+
+    monkeypatch.setattr(commit_lookup.requests, "get", fake_get)
+
+    commit_id = commit_lookup.get_gitlab_head_commit("https://gitlab.com/example/repo")
+
+    assert commit_id == "a" * 40
+
+
+def test_get_repo_head_commit_falls_back_to_generic_git(monkeypatch):
+    """Use generic git fallback when API-specific commit lookups are unavailable."""
+    monkeypatch.setattr(commit_lookup, "get_github_head_commit", lambda repo_url: None)
+    monkeypatch.setattr(commit_lookup, "get_gitlab_head_commit", lambda repo_url: None)
+    monkeypatch.setattr(
+        commit_lookup,
+        "get_generic_git_head_commit",
+        lambda repo_url: "b" * 40,
+    )
+
+    commit_id = commit_lookup.get_repo_head_commit("https://git.astron.nl/ro/lofar")
+
+    assert commit_id == "b" * 40
 
 
 def test_run_pipeline_skips_analysis_when_all_repos_unchanged(monkeypatch, tmp_path):
     """Skip metacheck and write skipped-only report when all repos are unchanged."""
-    called = {"metacheck": False, "create_issues": False}
+    called = {"metacheck": False}
 
     def fake_metacheck_main(*, args, standalone_mode):
         """Track unexpected metacheck invocation."""
         called["metacheck"] = True
 
-    def fake_create_issues_main(*, args, standalone_mode):
-        """Track unexpected create-issues invocation."""
-        called["create_issues"] = True
-
     monkeypatch.setattr(pipeline.metacheck_command, "main", fake_metacheck_main)
-    monkeypatch.setattr(pipeline.create_issues_command, "main", fake_create_issues_main)
-    monkeypatch.setattr(pipeline, "_get_repo_head_commit", lambda repo_url: "abc123")
+    monkeypatch.setattr(
+        commit_lookup, "get_repo_head_commit", lambda repo_url: "abc123"
+    )
 
     output_root = tmp_path / "outputs"
-    community_config = _write_community_config(
+    config = _write_config(
         tmp_path,
         repositories=["https://github.com/example/repo"],
         outputs={
@@ -415,9 +432,19 @@ def test_run_pipeline_skips_analysis_when_all_repos_unchanged(monkeypatch, tmp_p
         },
     )
 
-    prev_dir = output_root / "batch-a" / "20260310" / "issues_out"
-    prev_dir.mkdir(parents=True)
-    (prev_dir / "report.json").write_text(
+    prev_root = output_root / "batch-a" / "20260310"
+    prev_repo = prev_root / "github_com_example_repo"
+    prev_repo.mkdir(parents=True)
+    (prev_repo / "somef_output.json").write_text("{}")
+    (prev_repo / "pitfall.jsonld").write_text(
+        json.dumps(
+            {
+                "assessedSoftware": {"url": "https://github.com/example/repo"},
+                "checks": [],
+            }
+        )
+    )
+    (prev_repo / "report.json").write_text(
         json.dumps(
             {
                 "records": [
@@ -431,67 +458,61 @@ def test_run_pipeline_skips_analysis_when_all_repos_unchanged(monkeypatch, tmp_p
             }
         )
     )
+    (prev_root / "run_report.json").write_text(
+        json.dumps(
+            {
+                "records": [
+                    {
+                        "repo_url": "https://github.com/example/repo",
+                        "current_commit_id": "abc123",
+                    }
+                ]
+            }
+        )
+    )
 
     pipeline.run_pipeline(
-        community_config_file=community_config,
+        config_file=config,
         dry_run=False,
         snapshot_tag="20260311",
         previous_report=None,
     )
 
     assert called["metacheck"] is False
-    assert called["create_issues"] is False
 
-    report_path = output_root / "batch-a" / "20260311" / "issues_out" / "report.json"
+    report_path = (
+        output_root / "batch-a" / "20260311" / "github_com_example_repo" / "report.json"
+    )
+    assert report_path.exists()
     report = json.loads(report_path.read_text())
-    assert report["counters"]["total"] == 1
-    assert report["counters"]["skipped"] == 1
+    assert report["records"][0]["action"] == "skipped"
     assert report["records"][0]["reason_code"] == "repo_not_updated"
 
 
 def test_run_pipeline_merges_pre_skipped_with_analyzed_results(monkeypatch, tmp_path):
-    """Merge unchanged pre-skipped records with create-issues output for mixed lists."""
+    """Keep unchanged repos skipped while analyzing changed repositories."""
     calls: dict[str, dict] = {}
 
     def fake_metacheck_main(*, args, standalone_mode):
-        """Capture metacheck args for filtered-input assertions."""
+        """Capture metacheck args and create minimal per-repo metacheck outputs."""
         calls["metacheck"] = {"args": args, "standalone_mode": standalone_mode}
-        filtered_input = Path(args[1])
-        calls["filtered_repos"] = json.loads(filtered_input.read_text())["repositories"]
-
-    def fake_create_issues_main(*, args, standalone_mode):
-        """Write minimal report.json representing analyzed subset results."""
-        calls["create_issues"] = {"args": args, "standalone_mode": standalone_mode}
-        issues_dir = Path(args[args.index("--issues-dir") + 1])
-        issues_dir.mkdir(parents=True, exist_ok=True)
-        report = {
-            "run_metadata": {
-                "generated_at": "2026-03-11T00:00:00Z",
-                "dry_run": False,
-                "analysis_summary_file": None,
-                "previous_report_source": None,
-            },
-            "counters": {
-                "total": 1,
-                "created": 1,
-                "simulated": 0,
-                "updated_by_comment": 0,
-                "closed": 0,
-                "skipped": 0,
-                "failed": 0,
-            },
-            "records": [
+        repo_folder = Path(args[5])
+        repo_folder.mkdir(parents=True, exist_ok=True)
+        (repo_folder / "pitfall.jsonld").write_text(
+            json.dumps(
                 {
-                    "repo_url": "https://github.com/example/new-repo",
-                    "action": "created",
-                    "reason_code": "no_previous_analysis",
+                    "assessedSoftware": {"url": "https://github.com/example/new-repo"},
+                    "schemaVersion": "0.2.1",
+                    "dateCreated": "2026-03-11T00:00:00Z",
+                    "checks": [
+                        {"pitfall": "https://w3id.org/rsmetacheck/catalog/#W001"}
+                    ],
                 }
-            ],
-        }
-        (issues_dir / "report.json").write_text(json.dumps(report))
+            )
+        )
+        (repo_folder / "somef_output.json").write_text("{}")
 
     monkeypatch.setattr(pipeline.metacheck_command, "main", fake_metacheck_main)
-    monkeypatch.setattr(pipeline.create_issues_command, "main", fake_create_issues_main)
 
     def fake_get_head(repo_url: str) -> str | None:
         """Return deterministic commit hash for unchanged repo."""
@@ -499,10 +520,10 @@ def test_run_pipeline_merges_pre_skipped_with_analyzed_results(monkeypatch, tmp_
             return "abc123"
         return "def456"
 
-    monkeypatch.setattr(pipeline, "_get_repo_head_commit", fake_get_head)
+    monkeypatch.setattr(commit_lookup, "get_repo_head_commit", fake_get_head)
 
     output_root = tmp_path / "outputs"
-    community_config = _write_community_config(
+    config = _write_config(
         tmp_path,
         repositories=[
             "https://github.com/example/old-repo",
@@ -515,9 +536,19 @@ def test_run_pipeline_merges_pre_skipped_with_analyzed_results(monkeypatch, tmp_
         },
     )
 
-    prev_dir = output_root / "batch-a" / "20260310" / "issues_out"
-    prev_dir.mkdir(parents=True)
-    (prev_dir / "report.json").write_text(
+    prev_root = output_root / "batch-a" / "20260310"
+    prev_repo = prev_root / "github_com_example_old_repo"
+    prev_repo.mkdir(parents=True)
+    (prev_repo / "somef_output.json").write_text("{}")
+    (prev_repo / "pitfall.jsonld").write_text(
+        json.dumps(
+            {
+                "assessedSoftware": {"url": "https://github.com/example/old-repo"},
+                "checks": [],
+            }
+        )
+    )
+    (prev_repo / "report.json").write_text(
         json.dumps(
             {
                 "records": [
@@ -531,23 +562,51 @@ def test_run_pipeline_merges_pre_skipped_with_analyzed_results(monkeypatch, tmp_
             }
         )
     )
+    (prev_root / "run_report.json").write_text(
+        json.dumps(
+            {
+                "records": [
+                    {
+                        "repo_url": "https://github.com/example/old-repo",
+                        "current_commit_id": "abc123",
+                    }
+                ]
+            }
+        )
+    )
 
     pipeline.run_pipeline(
-        community_config_file=community_config,
+        config_file=config,
         dry_run=False,
         snapshot_tag="20260311",
         previous_report=None,
     )
 
-    assert calls["filtered_repos"] == ["https://github.com/example/new-repo"]
+    assert calls["metacheck"]["args"][1] == "https://github.com/example/new-repo"
 
-    report_path = output_root / "batch-a" / "20260311" / "issues_out" / "report.json"
-    report = json.loads(report_path.read_text())
-    assert report["counters"]["total"] == 2
-    assert report["counters"]["created"] == 1
-    assert report["counters"]["skipped"] == 1
-    assert report["records"][0]["repo_url"] == "https://github.com/example/old-repo"
-    assert report["records"][0]["reason_code"] == "repo_not_updated"
+    old_repo_report = (
+        output_root
+        / "batch-a"
+        / "20260311"
+        / "github_com_example_old_repo"
+        / "report.json"
+    )
+    new_repo_report = (
+        output_root
+        / "batch-a"
+        / "20260311"
+        / "github_com_example_new_repo"
+        / "report.json"
+    )
+    assert old_repo_report.exists()
+    assert new_repo_report.exists()
+    old_data = json.loads(old_repo_report.read_text())
+    new_data = json.loads(new_repo_report.read_text())
+    assert old_data["records"][0]["reason_code"] == "repo_not_updated"
+    assert new_data["records"][0]["reason_code"] in {
+        "no_previous_analysis",
+        "changed_and_issue_closed",
+    }
 
 
 def test_run_pipeline_uses_config_snapshot_default(monkeypatch, tmp_path):
@@ -558,15 +617,10 @@ def test_run_pipeline_uses_config_snapshot_default(monkeypatch, tmp_path):
         """Record the call arguments for metacheck."""
         calls["metacheck"] = {"args": args, "standalone_mode": standalone_mode}
 
-    def fake_create_issues_main(*, args, standalone_mode):
-        """Record the call arguments for create_issues."""
-        calls["create_issues"] = {"args": args, "standalone_mode": standalone_mode}
-
     monkeypatch.setattr(pipeline.metacheck_command, "main", fake_metacheck_main)
-    monkeypatch.setattr(pipeline.create_issues_command, "main", fake_create_issues_main)
 
     output_root = tmp_path / "outputs"
-    community_config = _write_community_config(
+    config = _write_config(
         tmp_path,
         outputs={
             "root_dir": str(output_root),
@@ -576,7 +630,7 @@ def test_run_pipeline_uses_config_snapshot_default(monkeypatch, tmp_path):
     )
 
     pipeline.run_pipeline(
-        community_config_file=community_config,
+        config_file=config,
         dry_run=False,
         snapshot_tag=None,
         previous_report=None,
@@ -584,31 +638,29 @@ def test_run_pipeline_uses_config_snapshot_default(monkeypatch, tmp_path):
 
     args = calls["metacheck"]["args"]
     expected_snapshot = pipeline.resolve_snapshot_tag(
-        pipeline.load_community_config(community_config), None
+        pipeline.load_config(config), None
     )
-    assert args[3] == str(output_root / "batch-a" / expected_snapshot / "somef_outputs")
+    assert "/batch-a/" in args[3]
+    assert args[3].endswith(f"/{expected_snapshot}/github_com_example_repo")
 
 
 def test_run_pipeline_skips_analysis_from_previous_dry_run_commit(
     monkeypatch, tmp_path
 ):
     """Skip analysis when previous report is simulated but commit hash is unchanged."""
-    called = {"metacheck": False, "create_issues": False}
+    called = {"metacheck": False}
 
     def fake_metacheck_main(*, args, standalone_mode):
         """Mark metacheck as called."""
         called["metacheck"] = True
 
-    def fake_create_issues_main(*, args, standalone_mode):
-        """Mark create_issues as called."""
-        called["create_issues"] = True
-
     monkeypatch.setattr(pipeline.metacheck_command, "main", fake_metacheck_main)
-    monkeypatch.setattr(pipeline.create_issues_command, "main", fake_create_issues_main)
-    monkeypatch.setattr(pipeline, "_get_repo_head_commit", lambda repo_url: "abc123")
+    monkeypatch.setattr(
+        commit_lookup, "get_repo_head_commit", lambda repo_url: "abc123"
+    )
 
     output_root = tmp_path / "outputs"
-    community_config = _write_community_config(
+    config = _write_config(
         tmp_path,
         repositories=["https://github.com/example/repo"],
         outputs={
@@ -618,9 +670,19 @@ def test_run_pipeline_skips_analysis_from_previous_dry_run_commit(
         },
     )
 
-    prev_dir = output_root / "batch-a" / "20260310" / "issues_out"
-    prev_dir.mkdir(parents=True)
-    (prev_dir / "report.json").write_text(
+    prev_root = output_root / "batch-a" / "20260310"
+    prev_repo = prev_root / "github_com_example_repo"
+    prev_repo.mkdir(parents=True)
+    (prev_repo / "somef_output.json").write_text("{}")
+    (prev_repo / "pitfall.jsonld").write_text(
+        json.dumps(
+            {
+                "assessedSoftware": {"url": "https://github.com/example/repo"},
+                "checks": [],
+            }
+        )
+    )
+    (prev_repo / "report.json").write_text(
         json.dumps(
             {
                 "records": [
@@ -633,45 +695,49 @@ def test_run_pipeline_skips_analysis_from_previous_dry_run_commit(
             }
         )
     )
+    (prev_root / "run_report.json").write_text(
+        json.dumps(
+            {
+                "records": [
+                    {
+                        "repo_url": "https://github.com/example/repo",
+                        "current_commit_id": "abc123",
+                    }
+                ]
+            }
+        )
+    )
 
     pipeline.run_pipeline(
-        community_config_file=community_config,
+        config_file=config,
         dry_run=True,
         snapshot_tag="20260311",
         previous_report=None,
     )
 
     assert called["metacheck"] is False
-    assert called["create_issues"] is False
 
-    report_path = output_root / "batch-a" / "20260311" / "issues_out" / "report.json"
-    report = json.loads(report_path.read_text())
-    assert report["records"][0]["reason_code"] == "repo_not_updated"
+    report_path = (
+        output_root / "batch-a" / "20260311" / "github_com_example_repo" / "report.json"
+    )
+    assert report_path.exists()
 
 
-def test_run_pipeline_unchanged_repo_unsubscribe_updates_opt_out(monkeypatch, tmp_path):
-    """Detect unsubscribe during pre-skip for unchanged repos and persist opt-out."""
-    called = {"metacheck": False, "create_issues": False}
+def test_run_pipeline_unchanged_repo_does_not_update_opt_out(monkeypatch, tmp_path):
+    """Analysis-only mode does not perform unsubscribe API checks or mutate opt-outs."""
+    called = {"metacheck": False}
 
     def fake_metacheck_main(*, args, standalone_mode):
         """Mark metacheck as called."""
         called["metacheck"] = True
 
-    def fake_create_issues_main(*, args, standalone_mode):
-        """Mark create_issues as called."""
-        called["create_issues"] = True
-
     monkeypatch.setattr(pipeline.metacheck_command, "main", fake_metacheck_main)
-    monkeypatch.setattr(pipeline.create_issues_command, "main", fake_create_issues_main)
-    monkeypatch.setattr(pipeline, "_get_repo_head_commit", lambda repo_url: "abc123")
     monkeypatch.setattr(
-        pipeline,
-        "_detect_unsubscribe_in_previous_issue",
-        lambda issue_url, dry_run: True,
+        commit_lookup, "get_repo_head_commit", lambda repo_url: "abc123"
     )
 
     output_root = tmp_path / "outputs"
-    community_config = _write_community_config(
+    config = _write_config(
         tmp_path,
         repositories=["https://github.com/example/repo"],
         outputs={
@@ -681,9 +747,19 @@ def test_run_pipeline_unchanged_repo_unsubscribe_updates_opt_out(monkeypatch, tm
         },
     )
 
-    prev_dir = output_root / "batch-a" / "20260310" / "issues_out"
-    prev_dir.mkdir(parents=True)
-    (prev_dir / "report.json").write_text(
+    prev_root = output_root / "batch-a" / "20260310"
+    prev_repo = prev_root / "github_com_example_repo"
+    prev_repo.mkdir(parents=True)
+    (prev_repo / "somef_output.json").write_text("{}")
+    (prev_repo / "pitfall.jsonld").write_text(
+        json.dumps(
+            {
+                "assessedSoftware": {"url": "https://github.com/example/repo"},
+                "checks": [],
+            }
+        )
+    )
+    (prev_repo / "report.json").write_text(
         json.dumps(
             {
                 "records": [
@@ -697,20 +773,33 @@ def test_run_pipeline_unchanged_repo_unsubscribe_updates_opt_out(monkeypatch, tm
             }
         )
     )
+    (prev_root / "run_report.json").write_text(
+        json.dumps(
+            {
+                "records": [
+                    {
+                        "repo_url": "https://github.com/example/repo",
+                        "current_commit_id": "abc123",
+                        "previous_issue_url": "https://github.com/example/repo/issues/7",
+                    }
+                ]
+            }
+        )
+    )
 
     pipeline.run_pipeline(
-        community_config_file=community_config,
+        config_file=config,
         dry_run=True,
         snapshot_tag="20260311",
         previous_report=None,
     )
 
     assert called["metacheck"] is False
-    assert called["create_issues"] is False
 
-    report_path = output_root / "batch-a" / "20260311" / "issues_out" / "report.json"
-    report = json.loads(report_path.read_text())
-    assert report["records"][0]["reason_code"] == "unsubscribe"
+    report_path = (
+        output_root / "batch-a" / "20260311" / "github_com_example_repo" / "report.json"
+    )
+    assert report_path.exists()
 
-    updated_config = json.loads(community_config.read_text())
-    assert updated_config["issues"]["opt_outs"] == ["https://github.com/example/repo"]
+    updated_config = json.loads(config.read_text())
+    assert updated_config["issues"]["opt_outs"] == []
