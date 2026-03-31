@@ -1,8 +1,8 @@
 # sw-metadata-bot
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](https://github.com/SoftwareUnderstanding/sw-metadata-bot/releases)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Version](https://img.shields.io/badge/version-0.3.1-blue.svg)](https://github.com/SoftwareUnderstanding/sw-metadata-bot/releases)
+[![Python 3.10--3.12](https://img.shields.io/badge/python-3.10--3.12-blue.svg)](https://www.python.org/downloads/)
 [![CI (build)](https://github.com/SoftwareUnderstanding/sw-metadata-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/SoftwareUnderstanding/sw-metadata-bot/actions/workflows/ci.yml)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 ![coverage](coverage.svg)
@@ -77,7 +77,7 @@ The bot **does not**:
 
 ## 🛠️ For Maintainers Running This Bot
 
-See [QUICKSTART.md](QUICKSTART.md) for setup and usage instructions.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and usage instructions.
 
 The pipeline is config driven: one JSON file defines the repository list, issue message, inline opt-outs, and output layout.
 
