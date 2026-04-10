@@ -153,7 +153,7 @@ The bot uses a decision tree to determine whether to create an issue for each re
        "fontSize": "18px"
      }
    }}%%
-   flowchart LR
+   flowchart TB
        repo([Repository]) --> prev{Previous analysis exists?}
 
        prev -- No --> full[Run analysis + create issue]
