@@ -122,7 +122,7 @@ You can find more details about these checks and how to address them in the [RSM
 {report}
 ---
 
-This report was generated automatically by [sw-metadata-bot](https://github.com/SoftwareUnderstanding/sw-metadata-bot).
+This report was generated automatically by [sw-metadata-bot](https://github.com/SoftwareUnderstanding/sw-metadata-bot) on your main default branch.
 
 If you're not interested in participating, please comment "unsubscribe" and we will remove your repository from our list.
 If you would like the pitfalls and warnings to be fixed automatically, please comment "auto-fix" and we will prioritize adding this feature in future iterations.

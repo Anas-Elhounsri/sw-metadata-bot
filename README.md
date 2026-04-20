@@ -17,7 +17,7 @@ Part of the [CodeMetaSoft](https://w3id.org/codemetasoft) project to improve res
 
 ## 📋 What This Bot Does
 
-If you received an issue from this bot, it means your repository's metadata was automatically analyzed and some improvements were detected.
+If you received an issue from this bot, it means your repository's metadata was automatically analyzed and some improvements were detected on the main default branch.
 
 The issue contains:
 
@@ -27,12 +27,11 @@ The issue contains:
 
 ### Example Issues You Might See
 
-- Missing or incomplete `LICENSE` file
-- No `CITATION.cff` file (for software citation)
-- Incomplete or missing `README` sections
-- Missing repository metadata (topics, description, etc.)
-- Outdated dependencies
-- Missing software documentation
+    ### P017
+
+    **Evidence*: P017 detected: codemeta.json version '0.2.0' does not match package version
+
+    **Suggestion**: You need
 
 ---
 
@@ -87,9 +86,7 @@ Supported platforms:
 - ✅ GitHub.com
 - ✅ Gitlab.com
 
-Future:
-
-- Self-hosted GitLab instances
+The bot is handling self-hosted gitlab platform but requires providing a token to this server (and not gitlab.com).
 
 ---
 
