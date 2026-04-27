@@ -1,13 +1,15 @@
 """GitLab API client."""
 
+from typing import Any
 from urllib.parse import urlparse
 
 import requests
 
+from .platform_api import IssueAPIBase
 from .token_resolver import resolve_token
 
 
-class GitLabAPI:
+class GitLabAPI(IssueAPIBase):
     """Simple GitLab API client."""
 
     def __init__(self, token: str | None = None, dry_run: bool = False):
@@ -20,7 +22,7 @@ class GitLabAPI:
         self.dry_run = dry_run
 
     @staticmethod
-    def parse_url(url: str) -> tuple[str, str, str]:
+    def parse_repo_url(url: str) -> tuple[str, str, str]:
         """
         Parse GitLab URL to extract host, owner, and repo.
 
@@ -44,8 +46,8 @@ class GitLabAPI:
         """Get API base URL for GitLab host."""
         return f"https://{host}/api/v4"
 
-    def test_auth(self, host: str = "gitlab.com") -> bool:
-        """Test if authentication works."""
+    def check_auth(self, host: str = "gitlab.com") -> bool:
+        """Check whether authentication works."""
         if self.dry_run:
             return True
 
@@ -69,7 +71,7 @@ class GitLabAPI:
         Returns:
             Dictionary with authentication details including user, scopes, and permissions.
         """
-        result = {
+        result: dict[str, Any] = {
             "platform": "GitLab",
             "host": host,
             "token_set": bool(self.token),
@@ -167,7 +169,7 @@ class GitLabAPI:
         Returns:
             URL of created issue (or fake URL in dry-run mode)
         """
-        host, owner, repo = self.parse_url(repo_url)
+        host, owner, repo = self.parse_repo_url(repo_url)
         project_id = f"{owner}/{repo}"
 
         if self.dry_run:
@@ -189,6 +191,38 @@ class GitLabAPI:
         if self.token:
             headers["PRIVATE-TOKEN"] = self.token
         return headers
+
+    def _issue_api_url(self, issue_url: str) -> str:
+        """Build API URL for a GitLab issue."""
+        host, owner, repo, issue_iid = self.parse_issue_url(issue_url)
+        base_url = self.get_base_url(host)
+        project_id = requests.utils.quote(f"{owner}/{repo}", safe="")
+        return f"{base_url}/projects/{project_id}/issues/{issue_iid}"
+
+    def _issue_comments_api_url(self, issue_url: str) -> str:
+        """Build API URL for GitLab issue notes."""
+        host, owner, repo, issue_iid = self.parse_issue_url(issue_url)
+        base_url = self.get_base_url(host)
+        project_id = requests.utils.quote(f"{owner}/{repo}", safe="")
+        return f"{base_url}/projects/{project_id}/issues/{issue_iid}/notes"
+
+    def _dry_run_issue_fallback(self, issue_url: str) -> dict[str, Any]:
+        """Return fallback issue payload for dry-run mode."""
+        _, owner, repo, issue_iid = self.parse_issue_url(issue_url)
+        return {
+            "state": "opened",
+            "web_url": issue_url,
+            "iid": issue_iid,
+            "project": f"{owner}/{repo}",
+        }
+
+    def _close_issue_request(self, issue_url: str) -> tuple[str, str, dict[str, str]]:
+        """Return HTTP request shape for closing a GitLab issue."""
+        return "PUT", self._issue_api_url(issue_url), {"state_event": "close"}
+
+    def _comment_body_from_item(self, item: dict[str, Any]) -> str:
+        """Extract note body from one GitLab note payload."""
+        return str(item.get("body", ""))
 
     @staticmethod
     def parse_issue_url(issue_url: str) -> tuple[str, str, str, int]:
@@ -214,83 +248,3 @@ class GitLabAPI:
             raise ValueError(f"Invalid GitLab issue URL format: {issue_url}")
 
         return host, owner, repo, int(issue_number_str)
-
-    def get_issue(self, issue_url: str) -> dict:
-        """Fetch issue details from GitLab."""
-        host, owner, repo, issue_iid = self.parse_issue_url(issue_url)
-
-        base_url = self.get_base_url(host)
-        project_id = requests.utils.quote(f"{owner}/{repo}", safe="")
-        url = f"{base_url}/projects/{project_id}/issues/{issue_iid}"
-        headers = self._build_headers()
-        if self.dry_run:
-            try:
-                response = requests.get(url, headers=headers, timeout=10)
-                response.raise_for_status()
-                return response.json()
-            except Exception:
-                return {
-                    "state": "opened",
-                    "web_url": issue_url,
-                    "iid": issue_iid,
-                    "project": f"{owner}/{repo}",
-                }
-
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        return response.json()
-
-    def get_issue_comments(self, issue_url: str) -> list[str]:
-        """Fetch issue comments and return note bodies."""
-        host, owner, repo, issue_iid = self.parse_issue_url(issue_url)
-
-        base_url = self.get_base_url(host)
-        project_id = requests.utils.quote(f"{owner}/{repo}", safe="")
-        url = f"{base_url}/projects/{project_id}/issues/{issue_iid}/notes"
-        headers = self._build_headers()
-        if self.dry_run:
-            try:
-                response = requests.get(url, headers=headers, timeout=10)
-                response.raise_for_status()
-                data = response.json()
-                return [
-                    str(item.get("body", "")) for item in data if isinstance(item, dict)
-                ]
-            except Exception:
-                return []
-
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        return [str(item.get("body", "")) for item in data if isinstance(item, dict)]
-
-    def add_issue_comment(self, issue_url: str, body: str) -> None:
-        """Add a comment to an issue."""
-        if self.dry_run:
-            return
-
-        host, owner, repo, issue_iid = self.parse_issue_url(issue_url)
-        base_url = self.get_base_url(host)
-        project_id = requests.utils.quote(f"{owner}/{repo}", safe="")
-        url = f"{base_url}/projects/{project_id}/issues/{issue_iid}/notes"
-        headers = {"PRIVATE-TOKEN": self.token}
-        response = requests.post(url, json={"body": body}, headers=headers, timeout=10)
-        response.raise_for_status()
-
-    def close_issue(self, issue_url: str) -> None:
-        """Close an existing issue."""
-        if self.dry_run:
-            return
-
-        host, owner, repo, issue_iid = self.parse_issue_url(issue_url)
-        base_url = self.get_base_url(host)
-        project_id = requests.utils.quote(f"{owner}/{repo}", safe="")
-        url = f"{base_url}/projects/{project_id}/issues/{issue_iid}"
-        headers = {"PRIVATE-TOKEN": self.token}
-        response = requests.put(
-            url,
-            json={"state_event": "close"},
-            headers=headers,
-            timeout=10,
-        )
-        response.raise_for_status()

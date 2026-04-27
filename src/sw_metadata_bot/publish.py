@@ -7,7 +7,7 @@ from typing import cast
 
 import click
 
-from . import github_api, gitlab_api, pitfalls
+from . import constants, github_api, gitlab_api, pitfalls, utils
 from .config_utils import (
     detect_platform,
     get_custom_message,
@@ -142,7 +142,7 @@ def _load_publish_body(analysis_root: Path, repo_url: str) -> str:
         )
 
     data = pitfalls.load_pitfalls(pitfall_file)
-    config_file = analysis_root / "config.json"
+    config_file = analysis_root / constants.FILENAME_CONFIG_SNAPSHOT
     custom_message = None
     if config_file.exists():
         custom_message = get_custom_message(load_config(config_file))
@@ -176,7 +176,9 @@ def _write_per_repo_report(
         return
 
     write_report_file(
-        report_file=analysis_root / sanitize_repo_name(repo_url) / "report.json",
+        report_file=analysis_root
+        / sanitize_repo_name(repo_url)
+        / constants.FILENAME_REPORT,
         records=[record],
         dry_run=False,
         run_root=analysis_root.parent,
@@ -187,12 +189,17 @@ def _write_per_repo_report(
 
 def publish_analysis(analysis_root: Path, retry_failed: bool = False) -> None:
     """Publish issues from an existing analysis snapshot without re-running analysis."""
-    run_report_file = analysis_root / "run_report.json"
-    if not run_report_file.exists():
+    run_report_file = analysis_root / constants.FILENAME_RUN_REPORT
+    try:
+        run_report = utils.load_json_file(
+            run_report_file, required=True, description="run report"
+        )
+    except FileNotFoundError:
         raise click.ClickException(f"Missing run_report.json in {analysis_root}")
-
-    with open(run_report_file, encoding="utf-8") as f:
-        run_report = json.load(f)
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise click.ClickException(
+            f"Invalid run_report.json format in {run_report_file}: {exc}"
+        )
 
     run_metadata = (
         run_report.get("run_metadata") if isinstance(run_report, dict) else None
@@ -247,13 +254,16 @@ def publish_analysis(analysis_root: Path, retry_failed: bool = False) -> None:
             updated_records.append(record)
             continue
 
-        if record.get("dry_run") is False and record.get("action") != "failed":
+        if (
+            record.get("dry_run") is False
+            and record.get("action") != constants.ACTION_FAILED
+        ):
             skipped_published += 1
             updated_records.append(record)
             continue
 
         action = str(record.get("action", ""))
-        if action == "failed":
+        if action == constants.ACTION_FAILED:
             if not retry_failed:
                 skipped_failed_retry += 1
                 updated_records.append(record)
@@ -279,7 +289,7 @@ def publish_analysis(analysis_root: Path, retry_failed: bool = False) -> None:
         attempted_action = action
 
         try:
-            if action in {"updated_by_comment", "closed"}:
+            if action in {constants.ACTION_UPDATED_BY_COMMENT, constants.ACTION_CLOSED}:
                 if not issue_url:
                     raise click.ClickException(
                         f"Missing issue URL for publish action {action}: {repo_url}"
@@ -291,8 +301,8 @@ def publish_analysis(analysis_root: Path, retry_failed: bool = False) -> None:
                     _is_unsubscribe_comment(comment) for comment in comments
                 )
                 if unsubscribe_detected:
-                    record["action"] = "skipped"
-                    record["reason_code"] = "unsubscribe"
+                    record["action"] = constants.ACTION_SKIPPED
+                    record["reason_code"] = constants.REASON_CODE_UNSUBSCRIBE
                     record["unsubscribe_detected"] = True
                     record["dry_run"] = False
                     record["issue_persistence"] = "none"
@@ -309,20 +319,20 @@ def publish_analysis(analysis_root: Path, retry_failed: bool = False) -> None:
                     )
                     continue
 
-            if action == "simulated_created":
+            if action == constants.ACTION_SIMULATED_CREATED:
                 body = _load_publish_body(analysis_root, repo_url)
                 title = "Automated Metadata Quality Report from CodeMetaSoft"
                 issue_client = issue_client_for_platform(platform)
                 created_url = issue_client.create_issue(repo_url, title, body)
 
-                record["action"] = "created"
+                record["action"] = constants.ACTION_CREATED
                 record["issue_url"] = created_url
                 record["dry_run"] = False
                 record["issue_persistence"] = "posted"
                 record.pop("simulated_issue_url", None)
                 _clear_failure_metadata(record)
 
-            elif action == "updated_by_comment":
+            elif action == constants.ACTION_UPDATED_BY_COMMENT:
                 if not issue_url:
                     raise click.ClickException(
                         f"Missing previous issue URL for repo: {repo_url}"
@@ -341,7 +351,7 @@ def publish_analysis(analysis_root: Path, retry_failed: bool = False) -> None:
                 record.pop("simulated_issue_url", None)
                 _clear_failure_metadata(record)
 
-            elif action == "closed":
+            elif action == constants.ACTION_CLOSED:
                 if not issue_url:
                     raise click.ClickException(
                         f"Missing previous issue URL for repo: {repo_url}"
@@ -362,14 +372,14 @@ def publish_analysis(analysis_root: Path, retry_failed: bool = False) -> None:
                 record.pop("simulated_issue_url", None)
                 _clear_failure_metadata(record)
 
-            elif action == "skipped":
+            elif action == constants.ACTION_SKIPPED:
                 record["dry_run"] = False
                 record["issue_persistence"] = "none"
                 record.pop("simulated_issue_url", None)
                 _clear_failure_metadata(record)
 
             else:
-                if attempted_action == "failed":
+                if attempted_action == constants.ACTION_FAILED:
                     skipped_failed_retry += 1
                 else:
                     record["dry_run"] = False
@@ -377,8 +387,8 @@ def publish_analysis(analysis_root: Path, retry_failed: bool = False) -> None:
                     _clear_failure_metadata(record)
 
         except Exception as exc:
-            record["action"] = "failed"
-            record["reason_code"] = "publish_exception"
+            record["action"] = constants.ACTION_FAILED
+            record["reason_code"] = constants.REASON_CODE_PUBLISH_EXCEPTION
             error_text = str(exc)
             record["error"] = error_text
             record["dry_run"] = True
@@ -392,7 +402,7 @@ def publish_analysis(analysis_root: Path, retry_failed: bool = False) -> None:
             )
             record["retry_attempt"] = retry_attempt
             record["failed_at"] = _now_utc_iso()
-            if attempted_action and attempted_action != "failed":
+            if attempted_action and attempted_action != constants.ACTION_FAILED:
                 record["last_publish_action"] = attempted_action
 
         updated_records.append(record)
